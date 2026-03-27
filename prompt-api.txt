@@ -1,0 +1,46 @@
+🔌 API Endpoints (Go Backend)
+
+Auth
+POST   /api/v1/auth/register         → Tạo user + wallet + gửi email verify
+POST   /api/v1/auth/login            → Trả về access_token (JWT 15m) + refresh_token (cookie httpOnly 7d)
+POST   /api/v1/auth/refresh          → Dùng refresh_token đổi access_token mới
+POST   /api/v1/auth/logout           → Blacklist JWT trên Redis
+GET    /api/v1/auth/verify-email     → ?token=xxx xác thực email
+
+User (cần JWT)
+GET    /api/v1/user/me
+PUT    /api/v1/user/profile
+GET    /api/v1/user/stats            → tổng earn, rank, referral count
+
+Tasks (cần JWT)
+GET    /api/v1/tasks                 → Danh sách task available (chưa làm, còn hạn)
+POST   /api/v1/tasks/:id/claim       → Nhận task, trả về { bypass_url, token, expires_at }
+GET    /api/v1/tasks/history         → Lịch sử task đã làm (paginated)
+
+Callback (KHÔNG cần JWT — dùng bypass_token)
+GET    /api/v1/callback/bypass       → ?token=xxx  (web1s redirect về đây sau khi user vượt xong)
+
+Wallet (cần JWT)
+GET    /api/v1/wallet/balance
+GET    /api/v1/wallet/transactions   → Paginated, filter by type
+
+Withdrawals (cần JWT)
+POST   /api/v1/withdrawals           → Tạo yêu cầu rút tiền
+GET    /api/v1/withdrawals           → Lịch sử rút của user
+DELETE /api/v1/withdrawals/:id       → Hủy nếu còn pending
+
+Admin (cần JWT + role=admin)
+GET    /api/v1/admin/dashboard/stats
+GET    /api/v1/admin/users           → Paginated + filter
+GET    /api/v1/admin/users/:id
+PUT    /api/v1/admin/users/:id/ban
+GET    /api/v1/admin/withdrawals     → ?status=pending
+PUT    /api/v1/admin/withdrawals/:id/approve
+PUT    /api/v1/admin/withdrawals/:id/reject
+GET    /api/v1/admin/tasks
+POST   /api/v1/admin/tasks
+PUT    /api/v1/admin/tasks/:id
+DELETE /api/v1/admin/tasks/:id
+GET    /api/v1/admin/audit-logs
+
+GET    /api/v1/health                → Trả về 200 OK (dùng để ping tránh cold start)

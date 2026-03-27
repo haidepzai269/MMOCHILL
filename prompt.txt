@@ -1,0 +1,257 @@
+System Architecture, Security, & InfrastructureGetty ImagesKhám pháTên file gợi ý: 03-architecture-and-specs.mdMarkdown# 📋 PROMPT PHÁT TRIỂN: Web Vượt Link Kiếm Tiền
+Đây là tài liệu kỹ thuật đầy đủ bao gồm kiến trúc, bảo mật, và tối ưu hiệu năng. Developer cần implement toàn bộ theo đúng spec, không được bỏ qua bất kỳ mục bảo mật nào. Ưu tiên thực hiện theo thứ tự: Schema → Auth → Task/Callback → Wallet → Withdrawal → Admin.
+
+## 🧭 Tổng quan dự án
+Xây dựng một web platform vượt link kiếm tiền (link bypass earning platform) với các chức năng:
+- User đăng ký/đăng nhập → vào `/task` nhận nhiệm vụ
+- Mỗi nhiệm vụ là 1 link rút gọn từ provider bên thứ 3 (web1s, v.v.) — user vượt xong thì được cộng tiền vào ví
+- User vào `/payment` để rút tiền về ngân hàng / Momo / crypto
+- Admin quản lý toàn bộ qua dashboard + nhận thông báo qua Zalo/Telegram Bot
+
+**Tech stack bắt buộc:**
+- Backend: Go (Gin hoặc Fiber framework)
+- Frontend: Next.js 14+ (App Router)
+- Database: PostgreSQL 16
+- Cache / Queue: Redis (dùng Upstash Redis free tier)
+- Containerization: Docker + Docker Compose
+- Deploy: Go API → Render.com, Next.js → Vercel (free)
+- CI/CD: GitHub Actions (optional nhưng nên có)
+
+## 🔐 Bảo mật — BẮT BUỘC PHẢI TRIỂN KHAI ĐẦY ĐỦ
+
+### 1. Bypass Token — Chống giả mạo callback
+**Vấn đề:** User có thể copy URL callback tự gọi mà không cần vượt link thật sự.
+**Yêu cầu triển khai:**
+```go
+// Tạo token có HMAC signature khi claim task
+func GenerateBypassToken(claimID, userID string, secret string) string {
+    payload := fmt.Sprintf("%s:%s:%d", claimID, userID, time.Now().UnixNano())
+    mac := hmac.New(sha256.New, []byte(secret))
+    mac.Write([]byte(payload))
+    sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+    return fmt.Sprintf("%s.%s", base64.RawURLEncoding.EncodeToString([]byte(payload)), sig)
+}
+// Token có TTL 20 phút, lưu expiry vào DB (bypass_token_expires)
+// Khi callback về: verify signature + check expiry + check status = 'pending'
+2. Idempotency — Chống cộng tiền 2 lần (Race Condition)Vấn đề: web1s có thể retry callback, hoặc user spam request.Yêu cầu triển khai:Go// Trong handler ProcessCallback:
+
+// Bước 1: Redis SETNX — chỉ 1 goroutine được xử lý
+lockKey := fmt.Sprintf("bypass_lock:%s", token)
+ok, err := redisClient.SetNX(ctx, lockKey, 1, 10*time.Minute).Result()
+if !ok {
+    return ErrAlreadyProcessed
+}
+
+// Bước 2: PostgreSQL transaction với SELECT FOR UPDATE
+tx.QueryRow("SELECT id FROM wallets WHERE user_id=$1 FOR UPDATE", userID)
+
+// Bước 3: Update claim status + cộng tiền trong cùng 1 transaction
+// Nếu claim.status != 'pending' → rollback ngay
+3. Withdrawal — Atomic Balance LockVấn đề: User submit nhiều request rút cùng lúc, vượt số dư.Yêu cầu triển khai:SQL-- Dùng 1 query duy nhất, atomic check-and-lock:
+UPDATE wallets
+SET
+    balance       = balance - $1,
+    locked_amount = locked_amount + $1,
+    updated_at    = NOW()
+WHERE
+    user_id = $2
+    AND (balance - locked_amount) >= $1   -- Chỉ trừ tiền available
+    AND status != 'banned'
+RETURNING id;
+-- Nếu không có row nào trả về → insufficient balance hoặc concurrent request
+Khi admin approve: trừ locked_amount, tăng total_withdrawn, gọi external payment API.Khi admin reject: hoàn lại locked_amount vào balance (wallet_transaction type = 'withdrawal_refund').4. Rate Limiting (Redis)Triển khai middleware rate limit cho tất cả các endpoint:POST /auth/register: 5 lần / IP / giờPOST /auth/login: 10 lần / IP / 15 phútPOST /tasks/:id/claim: 20 lần / user / giờPOST /withdrawals: 3 lần / user / ngàyGET /callback/bypass: 5 lần / token (sau đó block)Go// Dùng sliding window counter trên Redis
+func RateLimit(key string, limit int, window time.Duration) bool {
+    pipe := redis.Pipeline()
+    now := time.Now().UnixMilli()
+    windowStart := now - window.Milliseconds()
+    
+    pipe.ZRemRangeByScore(ctx, key, "0", strconv.FormatInt(windowStart, 10))
+    pipe.ZCard(ctx, key)
+    pipe.ZAdd(ctx, key, redis.Z{Score: float64(now), Member: now})
+    pipe.Expire(ctx, key, window)
+    
+    results, _ := pipe.Exec(ctx)
+    count := results[1].(*redis.IntCmd).Val()
+    return count < int64(limit)
+}
+5. Referral Abuse DetectionKhi user A refer user B, không tính bonus ngay mà chỉ tính khi:User B xác thực emailUser B hoàn thành ít nhất 3 taskIP của A và B khác nhau (lưu IP lúc register)Không có quá 3 accounts từ cùng 1 IP trong 24h6. Bot Detection trên Task ClaimGo// Trong handler ClaimTask:
+// Check thời gian từ claim → complete (nếu < min_time_seconds của task → reject)
+elapsed := completedAt.Sub(claim.StartedAt).Seconds()
+if elapsed < float64(task.MinTimeSeconds) {
+    // Flag account, không cộng tiền
+}
+
+// Check User-Agent không được rỗng hoặc là headless browser
+suspiciousAgents := []string{"HeadlessChrome", "PhantomJS", "Selenium", "puppeteer"}
+7. JWT SecurityAccess token: 15 phút, lưu trong memory (JS) — KHÔNG localStorageRefresh token: 7 ngày, httpOnly cookie, Secure, SameSite=StrictBlacklist logout trên Redis: SET jwt_blacklist:{jti} 1 EX {ttl}Middleware check blacklist mỗi request8. Withdrawal Limits (bắt buộc)Goconst (
+    MinWithdrawal     = 50_000  // 50k VND
+    MaxWithdrawalDay  = 2_000_000
+    MaxPendingCount   = 1        // Không được có 2 request pending cùng lúc
+)
+// Check: user phải verify email trước khi rút lần đầu
+⚡ Tối ưu hiệu năng — Render Free TierCấu hình Go cho môi trường bị giới hạn RAMGo// main.go — Set trước khi khởi động server
+func init() {
+    os.Setenv("GOGC", "50")           // GC thường xuyên hơn
+    os.Setenv("GOMEMLIMIT", "380MiB") // Hard limit, dưới 512MB của Render
+}
+
+// Database connection pool — Render free PostgreSQL giới hạn connections
+db.SetMaxOpenConns(5)
+db.SetMaxIdleConns(2)
+db.SetConnMaxLifetime(5 * time.Minute)
+db.SetConnMaxIdleTime(2 * time.Minute)
+Tránh Cold Start trên RenderThêm health endpoint và dùng cron-job.org (free) ping mỗi 10 phút:Go// GET /api/v1/health
+func HealthHandler(c *gin.Context) {
+    c.JSON(200, gin.H{
+        "status": "ok",
+        "time":   time.Now().Unix(),
+    })
+}
+Cấu hình cron-job.org: URL: https://your-api.onrender.com/api/v1/health | Interval: every 10 minutes | Timezone: Asia/Ho_Chi_MinhNext.js — Tối ưu deploy lên VercelJavaScript// next.config.js
+const nextConfig = {
+    output: 'standalone',       // Giảm ~60% bundle size
+    compress: true,
+    poweredByHeader: false,
+    images: {
+        formats: ['image/webp', 'image/avif'],
+        minimumCacheTTL: 3600,
+    },
+    experimental: {
+        optimizeCss: true,
+        optimizePackageImports: ['lucide-react'],
+    },
+}
+Redis Strategy (Upstash — free 10k req/day)Chỉ cache những gì thực sự cần:bypass_lock:{token} (TTL 10m) — Idempotencyrate:{endpoint}:{key} (TTL auto) — Rate limitingjwt_blacklist:{jti} (TTL = token_expiry)stats:dashboard (TTL 5m) — Admin dashboard cachetasks:available (TTL 2m) — Task list cache (invalidate khi admin update)Không cache: wallet balance (cần real-time), withdrawal status.📢 Notification SystemEventGửi đếnTask hoàn thànhUser (nếu có Zalo/Tele liên kết)Withdrawal request mớiAdmin Telegram BotWithdrawal approved/rejectedUserAccount bị banUserReferral bonus được cộngUserGo// Gửi thông báo mỗi khi có withdrawal request mới
+type TelegramNotifier struct {
+    BotToken string
+    ChatID   string
+}
+
+func (t *TelegramNotifier) SendWithdrawalAlert(w Withdrawal) error {
+    msg := fmt.Sprintf(
+        "🔔 *Yêu cầu rút tiền mới*\n"+
+        "👤 User: %s\n"+
+        "💰 Số tiền: %s\n"+
+        "🏦 Phương thức: %s\n"+
+        "🕐 Thời gian: %s\n"+
+        "[Duyệt ngay](https://admin.yoursite.com/withdrawals/%s)",
+        w.Username, FormatVND(w.Amount), w.Method,
+        w.CreatedAt.Format("02/01/2006 15:04"), w.ID,
+    )
+    // Gọi Telegram Bot API sendMessage
+}
+🐳 Docker SetupYAML# docker-compose.yml
+version: '3.9'
+
+services:
+  api:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://user:pass@postgres:5432/vuotlink
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - BYPASS_SECRET=${BYPASS_SECRET}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - GOGC=50
+      - GOMEMLIMIT=380MiB
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vuotlink
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d vuotlink"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 20mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+
+volumes:
+  pgdata:
+📁 Cấu trúc thư mục Go BackendPlaintextbackend/
+├── cmd/
+│   └── api/
+│       └── main.go
+├── internal/
+│   ├── auth/
+│   │   ├── handler.go
+│   │   ├── service.go
+│   │   └── jwt.go
+│   ├── task/
+│   │   ├── handler.go
+│   │   ├── service.go
+│   │   └── bypass.go          ← Logic tạo/verify token
+│   ├── wallet/
+│   │   ├── handler.go
+│   │   └── service.go         ← Atomic balance operations
+│   ├── withdrawal/
+│   │   ├── handler.go
+│   │   ├── service.go
+│   │   └── notification.go    ← Telegram alert
+│   ├── admin/
+│   │   ├── handler.go
+│   │   └── service.go
+│   ├── middleware/
+│   │   ├── auth.go
+│   │   ├── ratelimit.go
+│   │   └── admin.go
+│   └── db/
+│       ├── postgres.go
+│       └── redis.go
+├── migrations/
+│   ├── 001_init.sql
+│   └── 002_indexes.sql
+├── Dockerfile
+└── .env.example
+✅ Checklist trước khi deployBảo mật[ ] HMAC bypass token với TTL 20 phút[ ] Redis SETNX idempotency cho callback[ ] SELECT FOR UPDATE trên wallet operations[ ] Atomic withdrawal lock (1 SQL query)[ ] Rate limiting tất cả endpoints[ ] JWT blacklist khi logout[ ] Referral abuse check (IP + email verify)[ ] Bot detection (min_time_seconds + user-agent)[ ] Email verification bắt buộc trước khi rút tiền[ ] Withdrawal limits (min 50k, max 2M/ngày, 1 pending)Performance[ ] GOGC=50, GOMEMLIMIT=380MiB[ ] DB connection pool giới hạn 5 connections[ ] Redis cache task list + dashboard stats[ ] Next.js output: standalone[ ] Health endpoint /api/v1/health[ ] Cron ping mỗi 10 phút (cron-job.org)Infrastructure[ ] Next.js deploy Vercel (không Render)[ ] Go API deploy Render (free)[ ] PostgreSQL: Render managed[ ] Redis: Upstash (10k req/day free)[ ] Telegram Bot kết nối admin group[ ] Environment variables đầy đủ trong Render dashboard[ ] Docker Compose chạy được ở localAdmin[ ] Admin audit log mọi action[ ] Dashboard stats (revenue, top users, pending withdrawals)[ ] Fraud queue (accounts bị flag)[ ] Manual wallet adjust với reason bắt buộc🌐 Environment VariablesĐoạn mã# Server
+PORT=8080
+APP_ENV=production
+FRONTEND_URL=[https://yoursite.vercel.app](https://yoursite.vercel.app)
+
+# Database
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+
+# Redis (Upstash)
+REDIS_URL=rediss://default:password@host:6379
+
+# Security
+JWT_SECRET=<64-char-random-string>
+JWT_REFRESH_SECRET=<64-char-random-string>
+BYPASS_SECRET=<32-char-random-string>
+
+# Email (dùng Resend.com - free 3000 emails/month)
+RESEND_API_KEY=re_xxxxx
+EMAIL_FROM=noreply@yoursite.com
+
+# Notifications
+TELEGRAM_BOT_TOKEN=xxxxx:xxxxxxx
+TELEGRAM_ADMIN_CHAT_ID=-100xxxxxxx
+
+# Payment Providers
+WEB1S_API_KEY=xxxxx
+WEB1S_CALLBACK_SECRET=xxxxx
+
+# App Config
+MIN_WITHDRAWAL=50000
+MAX_WITHDRAWAL_DAY=2000000
+REFERRAL_BONUS=5000
