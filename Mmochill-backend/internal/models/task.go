@@ -31,6 +31,8 @@ type Task struct {
 	Type             TaskType   `json:"type" db:"type"`
 	Status           TaskStatus `json:"status" db:"status"` // Tương thích với frontend cũ nếu cần
 	ExpiresAt        *time.Time `json:"expires_at" db:"expires_at"`
-	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at" db:"updated_at"`
+	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
+	CompletionsToday    int        `json:"completions_today" db:"-"`
+	MaxCompletionsToday int        `json:"max_completions_today" db:"-"`
 }

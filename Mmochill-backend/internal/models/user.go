@@ -14,7 +14,7 @@ type User struct {
 	Email          string           `json:"email" db:"email"`
 	Password       string           `json:"-" db:"password_hash"`
 	ReferralCode   string           `json:"referral_code" db:"referral_code"`
-	ReferredBy     string           `json:"referred_by,omitempty" db:"referred_by"`
+	ReferredBy     *string          `json:"referred_by,omitempty" db:"referred_by"`
 	Balance        float64          `json:"balance" db:"balance"`
 	LockedAmount   float64          `json:"locked_amount" db:"locked_amount"`
 	PeakBalance    float64          `json:"peak_balance" db:"peak_balance"`
@@ -26,6 +26,9 @@ type User struct {
 	Role           string           `json:"role" db:"role"`     // user, admin
 	CreatedAt      time.Time        `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at" db:"updated_at"`
+	CompletedTasksCount int           `json:"completed_tasks_count" db:"completed_tasks_count"`
+	SoundEnabled   bool             `json:"sound_enabled" db:"sound_enabled"`
+	IsVIP          bool             `json:"is_vip" db:"is_vip"`
 	Credentials    []UserCredential `json:"-" db:"-"`
 }
 
@@ -64,7 +67,7 @@ func (u User) WebAuthnCredentials() []webauthn.Credential {
 type RegisterRequest struct {
 	Email          string `json:"email" binding:"required,email"`
 	Password       string `json:"password" binding:"required,min=6"`
-	FullName       string `json:"full_name"`
+	FullName       string `json:"full_name" binding:"required"`
 	ReferredByCode string `json:"referred_by_code"`
 }
 
@@ -74,6 +77,7 @@ type LoginRequest struct {
 }
 
 type AuthResponse struct {
-	User  User   `json:"user"`
-	Token string `json:"token"`
+	User         User   `json:"user"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
 }

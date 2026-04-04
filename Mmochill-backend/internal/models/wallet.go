@@ -21,6 +21,9 @@ const (
 	TxWithdrawalRefund TransactionType = "withdrawal_refund"
 	TxReferralBonus    TransactionType = "referral_bonus"
 	TxAdminAdjust      TransactionType = "admin_adjust"
+	TxDailyCheckinReward TransactionType = "daily_checkin_reward"
+	TxLuckySpinReward    TransactionType = "lucky_spin_reward"
+	TxLeaderboardReward  TransactionType = "leaderboard_reward"
 )
 
 type WalletTransaction struct {

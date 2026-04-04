@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -49,19 +50,20 @@ func Register(c *gin.Context) {
 	defer tx.Rollback(ctx)
 
 	user := &models.User{
-		Username: strings.Split(req.Email, "@")[0],
+		Username: req.FullName,
 		FullName: req.FullName,
 		Email:    req.Email,
 		Password: string(hashedPassword),
 		Role:     "user",
 		Status:   "active",
+		// DisplayID sẽ được tự động tạo trong repository dựa trên serial_id
 	}
 
 	// Xử lý người giới thiệu nếu có mã code
 	if req.ReferredByCode != "" {
 		referrer, err := repository.GetUserByReferralCode(req.ReferredByCode)
 		if err == nil && referrer != nil {
-			user.ReferredBy = referrer.ID
+			user.ReferredBy = &referrer.ID
 		}
 	}
 
@@ -86,15 +88,16 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	token, err := generateToken(user.ID, user.Role)
+	tokenPair, err := generateTokens(user.ID, user.Role)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate tokens"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, models.AuthResponse{
-		User:  *user,
-		Token: token,
+		User:         *user,
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
 	})
 }
 
@@ -123,15 +126,16 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	token, err := generateToken(user.ID, user.Role)
+	tokenPair, err := generateTokens(user.ID, user.Role)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate tokens"})
 		return
 	}
 
 	c.JSON(http.StatusOK, models.AuthResponse{
-		User:  *user,
-		Token: token,
+		User:         *user,
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
 	})
 }
 
@@ -142,24 +146,117 @@ func GetProfile(c *gin.Context) {
 		return
 	}
 
-	user, err := repository.GetUserByID(fmt.Sprintf("%v", userID))
+	uid := fmt.Sprintf("%v", userID)
+	ctx := c.Request.Context()
+
+	// Check Redis Cache trước (TTL 60 giây - đủ để cache khi navigate giữa các trang)
+	cacheKey := "user:profile:" + uid
+	if val, err := database.RedisClient.Get(ctx, cacheKey).Result(); err == nil {
+		var user models.User
+		if json.Unmarshal([]byte(val), &user) == nil {
+			c.JSON(http.StatusOK, &user)
+			return
+		}
+	}
+
+	user, err := repository.GetUserByID(uid)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
+	// Lưu vào Redis Cache
+	if userJSON, err := json.Marshal(user); err == nil {
+		database.RedisClient.Set(ctx, cacheKey, userJSON, 60*time.Second)
+	}
+
 	c.JSON(http.StatusOK, user)
 }
 
-func generateToken(userID, role string) (string, error) {
-	claims := jwt.MapClaims{
+type TokenPair struct {
+	AccessToken  string
+	RefreshToken string
+}
+
+func generateTokens(userID, role string) (*TokenPair, error) {
+	// Access Token (7 days)
+	accessClaims := jwt.MapClaims{
 		"user_id": userID,
 		"role":    role,
-		"exp":     time.Now().Add(time.Hour * 72).Unix(),
+		"exp":     time.Now().Add(time.Hour * 24 * 7).Unix(),
+	}
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+	signedAccess, err := accessToken.SignedString(jwtSecret)
+	if err != nil {
+		return nil, err
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+	// Refresh Token (7 days)
+	refreshClaims := jwt.MapClaims{
+		"user_id": userID,
+		"exp":     time.Now().Add(time.Hour * 24 * 7).Unix(),
+	}
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+	signedRefresh, err := refreshToken.SignedString(jwtSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store Refresh Token in Redis for revocation
+	database.RedisClient.Set(database.Ctx, fmt.Sprintf("refresh_token:%s", signedRefresh), userID, 7*24*time.Hour)
+
+	return &TokenPair{
+		AccessToken:  signedAccess,
+		RefreshToken: signedRefresh,
+	}, nil
+}
+
+func RefreshToken(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Refresh token is required"})
+		return
+	}
+
+	// 1. Check Redis for existence
+	userID, err := database.RedisClient.Get(database.Ctx, fmt.Sprintf("refresh_token:%s", req.RefreshToken)).Result()
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired refresh token"})
+		return
+	}
+
+	// 2. Parse and validate
+	token, err := jwt.Parse(req.RefreshToken, func(token *jwt.Token) (interface{}, error) {
+		return jwtSecret, nil
+	})
+
+	if err != nil || !token.Valid {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid refresh token"})
+		return
+	}
+
+	// 3. Get user details for new token
+	user, err := repository.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+		return
+	}
+
+	// 4. Generate new tokens
+	// Optional: Rotate refresh token too (issue new refresh token and delete old one)
+	database.RedisClient.Del(database.Ctx, fmt.Sprintf("refresh_token:%s", req.RefreshToken))
+	tokenPair, err := generateTokens(user.ID, user.Role)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate tokens"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":  tokenPair.AccessToken,
+		"refresh_token": tokenPair.RefreshToken,
+	})
 }
 func UpdateProfile(c *gin.Context) {
 	userID, _ := c.Get("user_id")
@@ -177,6 +274,9 @@ func UpdateProfile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
 		return
 	}
+
+	// Invalidate profile cache
+	database.RedisClient.Del(c.Request.Context(), "user:profile:"+userID.(string))
 
 	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully"})
 }
@@ -342,5 +442,88 @@ func ChangeEmail(c *gin.Context) {
 		return
 	}
 
+	// Invalidate profile cache khi email thay đổi
+	database.RedisClient.Del(c.Request.Context(), "user:profile:"+fmt.Sprintf("%v", userID))
+
 	c.JSON(http.StatusOK, gin.H{"message": "Thay đổi Email thành công"})
+}
+
+func GetReferralStats(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	uid := userID.(string)
+	ctx := c.Request.Context()
+
+	// Priority 5: Check Redis Cache (TTL 10 phút)
+	cacheKey := "user:referral:" + uid
+	if val, err := database.RedisClient.Get(ctx, cacheKey).Result(); err == nil {
+		var result map[string]interface{}
+		if json.Unmarshal([]byte(val), &result) == nil {
+			c.JSON(http.StatusOK, result)
+			return
+		}
+	}
+
+	totalInvited, totalCommission, invitedUsers, err := repository.GetReferralStats(ctx, uid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get referral stats"})
+		return
+	}
+
+	// Dùng profile cache (đã có) hoặc query thêm nếu cần referral_code
+	user, err := repository.GetUserByID(uid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Tạo referral link
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+	referralLink := fmt.Sprintf("%s/register?ref=%s", frontendURL, user.ReferralCode)
+
+	response := gin.H{
+		"referral_code":    user.ReferralCode,
+		"referral_link":    referralLink,
+		"total_invited":    totalInvited,
+		"total_commission": totalCommission,
+		"invited_users":    invitedUsers,
+	}
+
+	// Lưu vào Redis Cache (10 phút)
+	if respJSON, err := json.Marshal(response); err == nil {
+		database.RedisClient.Set(ctx, cacheKey, respJSON, 10*time.Minute)
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func UpdateSoundPreference(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	uid := fmt.Sprintf("%v", userID)
+	
+	if err := repository.UpdateSoundPreference(uid, req.Enabled); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sound preference"})
+		return
+	}
+
+	// Invalidate profile cache
+	database.RedisClient.Del(c.Request.Context(), "user:profile:"+uid)
+
+	c.JSON(http.StatusOK, gin.H{"message": "Sound preference updated successfully", "enabled": req.Enabled})
 }

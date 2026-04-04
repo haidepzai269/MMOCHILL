@@ -22,19 +22,8 @@ func GetTasks(c *gin.Context) {
 }
 
 func GetActiveTasks(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, _ := c.Get("user_id")
 	ctx := c.Request.Context()
-
-	if !exists {
-		// Public list: cache đơn giản
-		tasks, err := repository.GetActiveTasks(ctx)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, tasks)
-		return
-	}
 
 	uid := userID.(string)
 	
@@ -106,6 +95,24 @@ func GetTaskDetail(c *gin.Context) {
 		return
 	}
 
+	// 2.5 Tính toán số vòng đã chơi riêng cho user này (không cache trực tiếp vào global task)
+	if task.Provider == "taplayma" || task.Provider == "nhapma" || task.Provider == "traffic68" {
+		query := `
+            SELECT SUM(CASE WHEN claimed_at::DATE = CURRENT_DATE THEN 1 ELSE 0 END)
+            FROM user_task_claims
+            WHERE user_id = $1 AND task_id = $2 AND status = 'completed'`
+		var completionsToday *int
+		database.Pool.QueryRow(ctx, query, userID.(string), id).Scan(&completionsToday)
+		if completionsToday != nil {
+			task.CompletionsToday = *completionsToday
+		} else {
+			task.CompletionsToday = 0
+		}
+		task.MaxCompletionsToday = 3
+	} else {
+		task.MaxCompletionsToday = 1
+	}
+
 	c.JSON(http.StatusOK, task)
 }
 
@@ -130,6 +137,8 @@ func CreateTask(c *gin.Context) {
 
 	// Invalidate global task list by incrementing version
 	database.RedisClient.Incr(ctx, "tasks:v1:global_version")
+	// Invalidate admin stats cache
+	database.RedisClient.Del(ctx, "admin:stats:v1")
 	// Notify SSE
 	database.RedisClient.Publish(ctx, "admin:stats", "update")
 	database.RedisClient.Publish(ctx, "tasks:global", "update")
@@ -196,6 +205,8 @@ func DeleteTask(c *gin.Context) {
 	// Invalidate Redis Cache for detail and global list
 	database.RedisClient.Del(ctx, "task:v1:detail:"+id)
 	database.RedisClient.Incr(ctx, "tasks:v1:global_version")
+	// Invalidate admin stats cache
+	database.RedisClient.Del(ctx, "admin:stats:v1")
 	// Notify SSE
 	database.RedisClient.Publish(ctx, "admin:stats", "update")
 	database.RedisClient.Publish(ctx, "tasks:global", "update")

@@ -73,3 +73,64 @@ func GetAuditLogs(ctx context.Context, limit, offset int) ([]models.AuditLog, er
 	}
 	return logs, nil
 }
+
+func CreateAdminNotification(ctx context.Context, tx database.TxOrPool, title, message, typeStr, category string, data interface{}) error {
+	execer := tx
+	if execer == nil {
+		execer = database.Pool
+	}
+	query := `INSERT INTO admin_notifications (title, message, type, category, data, created_at) 
+            VALUES ($1, $2, $3, $4, $5, NOW())`
+	_, err := execer.Exec(ctx, query, title, message, typeStr, category, data)
+	return err
+}
+
+func GetAdminNotifications(ctx context.Context, limit, offset int, category string) ([]models.AdminAlert, int, error) {
+	var countQuery string
+	var query string
+	var args []interface{}
+	
+	if category != "" {
+		countQuery = "SELECT COUNT(*) FROM admin_notifications WHERE category = $1"
+		query = `SELECT id, title, message, type, category, is_read, data, created_at 
+                FROM admin_notifications WHERE category = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+		args = append(args, category)
+	} else {
+		countQuery = "SELECT COUNT(*) FROM admin_notifications"
+		query = `SELECT id, title, message, type, category, is_read, data, created_at 
+                FROM admin_notifications ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+	}
+
+	var total int
+	err := database.Pool.QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	fetchArgs := append(args, limit, offset)
+	rows, err := database.Pool.Query(ctx, query, fetchArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var notes []models.AdminAlert
+	for rows.Next() {
+		var n models.AdminAlert
+		err := rows.Scan(&n.ID, &n.Title, &n.Message, &n.Type, &n.Category, &n.IsRead, &n.Data, &n.CreatedAt)
+		if err != nil {
+			return nil, 0, err
+		}
+		notes = append(notes, n)
+	}
+	return notes, total, nil
+}
+
+func MarkAdminNotificationsAsRead(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		_, err := database.Pool.Exec(ctx, "UPDATE admin_notifications SET is_read = true WHERE is_read = false")
+		return err
+	}
+	_, err := database.Pool.Exec(ctx, "UPDATE admin_notifications SET is_read = true WHERE id = ANY($1)", ids)
+	return err
+}

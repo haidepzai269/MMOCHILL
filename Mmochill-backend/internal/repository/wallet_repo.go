@@ -32,8 +32,8 @@ func CreateWallet(ctx context.Context, userID string) error {
 	return err
 }
 
-// AddReward cộng tiền thưởng nhiệm vụ (phải chạy trong Transaction)
-func AddReward(ctx context.Context, tx database.TxOrPool, userID string, amount int64, refID string, note string) error {
+// AddWalletBalance cộng/trừ tiền vào ví với loại giao dịch cụ thể (phải chạy trong Transaction hoặc Pool)
+func AddWalletBalance(ctx context.Context, tx database.TxOrPool, userID string, amount int64, txType models.TransactionType, refID string, note string) error {
 	execer := tx
 	if execer == nil {
 		execer = database.Pool
@@ -43,7 +43,7 @@ func AddReward(ctx context.Context, tx database.TxOrPool, userID string, amount 
 	queryWallet := `
 		UPDATE wallets 
 		SET balance = balance + $1, 
-		    total_earned = total_earned + $1, 
+		    total_earned = CASE WHEN $1 > 0 THEN total_earned + $1 ELSE total_earned END, 
 		    peak_balance = GREATEST(peak_balance, balance + $1),
 		    updated_at = NOW() 
 		WHERE user_id = $2 
@@ -59,8 +59,13 @@ func AddReward(ctx context.Context, tx database.TxOrPool, userID string, amount 
 	// 2. Ghi log Transaction
 	queryTx := `
 		INSERT INTO wallet_transactions (wallet_id, type, amount, balance_before, balance_after, ref_id, note)
-		VALUES ($1, 'task_reward', $2, $3, $4, $5, $6)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
-	_, err = tx.Exec(ctx, queryTx, walletID, amount, newBalance-amount, newBalance, refID, note)
+	_, err = tx.Exec(ctx, queryTx, walletID, string(txType), amount, newBalance-amount, newBalance, refID, note)
 	return err
+}
+
+// AddReward cộng tiền thưởng nhiệm vụ (giữ lại để tương thích ngược)
+func AddReward(ctx context.Context, tx database.TxOrPool, userID string, amount int64, refID string, note string) error {
+	return AddWalletBalance(ctx, tx, userID, amount, models.TxTaskReward, refID, note)
 }

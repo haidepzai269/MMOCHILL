@@ -77,9 +77,9 @@ func FinishRegistration(c *gin.Context) {
 		newCred.Transport[i] = string(t)
 	}
 
-	err = repository.SaveCredential(context.Background(), newCred)
+	err = repository.SaveCredential(c.Request.Context(), newCred)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save credential"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save credential: " + err.Error()})
 		return
 	}
 
@@ -160,14 +160,15 @@ func FinishLogin(c *gin.Context) {
 	}
 
 	// Login successful: Generate JWT
-	token, err := generateToken(user.ID, user.Role)
+	tokenPair, err := generateTokens(user.ID, user.Role)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate tokens"})
 		return
 	}
 
 	c.JSON(http.StatusOK, models.AuthResponse{
-		User:  *user,
-		Token: token,
+		User:         *user,
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
 	})
 }

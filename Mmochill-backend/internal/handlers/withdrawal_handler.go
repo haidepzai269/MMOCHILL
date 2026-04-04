@@ -81,6 +81,12 @@ func RequestWithdrawal(c *gin.Context) {
 		log.Printf("[Withdrawal] Successfully published to admin:withdrawals")
 	}
 
+	// Thông báo cho admin
+	adminTitle := "Yêu cầu rút tiền mới"
+	adminMsg := fmt.Sprintf("User ID %s vừa yêu cầu rút %d VND qua %s", userID, req.Amount, req.Method)
+	_ = repository.CreateAdminNotification(ctx, nil, adminTitle, adminMsg, "info", "payment", map[string]interface{}{"withdrawal_id": withdrawal.ID, "user_id": userID})
+	database.RedisClient.Publish(ctx, "admin:notifications", "update")
+
 	database.RedisClient.Publish(ctx, "admin:stats", "update")
 
 	c.JSON(http.StatusOK, gin.H{"message": "Withdrawal request submitted", "id": withdrawal.ID})

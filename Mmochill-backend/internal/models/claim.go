@@ -26,3 +26,10 @@ type UserTaskClaim struct {
 	IPAddress          string      `json:"ip_address" db:"ip_address"`
 	UserAgent          string      `json:"user_agent" db:"user_agent"`
 }
+
+type UserTaskClaimDetail struct {
+	UserTaskClaim
+	Username  string `json:"username"`
+	TaskTitle string `json:"task_title"`
+	Reward    int64  `json:"reward"`
+}

@@ -22,11 +22,12 @@ func ConnectDB() {
 		log.Fatalf("Unable to parse DATABASE_URL: %v", err)
 	}
 
-	// Database connection pool settings (for Render Free Tier)
-	config.MaxConns = 5
+	// Database connection pool settings (tối ưu cho Neon Pooler)
+	config.MaxConns = 10              // Tăng từ 5 → 10 (Neon pooler hỗ trợ)
 	config.MinConns = 2
-	config.MaxConnLifetime = 5 * time.Minute
-	config.MaxConnIdleTime = 2 * time.Minute
+	config.MaxConnLifetime = 10 * time.Minute // Tăng lifetime để giảm reconnect
+	config.MaxConnIdleTime = 3 * time.Minute  // Tăng idle time
+	config.HealthCheckPeriod = 1 * time.Minute // Detect stale connections sớm hơn
 
 	Pool, err = pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {

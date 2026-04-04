@@ -7,30 +7,38 @@ import (
 	"github.com/QuangVuDuc006/mmochill-backend/internal/models"
 )
 
-func GetNotificationsByUserID(ctx context.Context, userID string) ([]models.Notification, error) {
+func GetNotificationsByUserID(ctx context.Context, userID string, limit, offset int) ([]models.Notification, int, error) {
+	// 1. Get Total Count
+	var total int
+	err := database.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM notifications WHERE user_id = $1", userID).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 2. Fetch Notifications
 	query := `
 		SELECT id, user_id, title, message, COALESCE(type, 'info'), COALESCE(category, 'system'), is_read, created_at 
 		FROM notifications 
 		WHERE user_id = $1 
 		ORDER BY created_at DESC 
-		LIMIT 30
+		LIMIT $2 OFFSET $3
 	`
-	rows, err := database.Pool.Query(ctx, query, userID)
+	rows, err := database.Pool.Query(ctx, query, userID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
-	var notes []models.Notification
+	notes := []models.Notification{}
 	for rows.Next() {
 		var n models.Notification
 		err := rows.Scan(&n.ID, &n.UserID, &n.Title, &n.Message, &n.Type, &n.Category, &n.IsRead, &n.CreatedAt)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		notes = append(notes, n)
 	}
-	return notes, nil
+	return notes, total, nil
 }
 
 func CreateNotification(ctx context.Context, tx database.TxOrPool, userID, title, message, nType, category string) error {
@@ -67,44 +75,72 @@ func CreateGlobalNotification(ctx context.Context, title, message, nType, catego
 	return err
 }
 
-func AdminGetSentNotifications(ctx context.Context) ([]models.Notification, error) {
-	// Group by title, message, and group_id to see unique sent messages
-	query := `
-		SELECT DISTINCT ON (COALESCE(group_id::text, id::text)) 
-			id, title, message, type, category, is_read, created_at, group_id
-		FROM notifications
-		ORDER BY COALESCE(group_id::text, id::text), created_at DESC
-		LIMIT 50
-	`
-	// Since we want latest, we should sort by created_at first then distinct. 
-	// Correct query for latest unique messages:
-	query = `
-		SELECT id, title, message, type, category, is_read, created_at, group_id
-		FROM (
-			SELECT DISTINCT ON (COALESCE(group_id::text, id::text)) *
-			FROM notifications
-			ORDER BY COALESCE(group_id::text, id::text), created_at DESC
+func AdminGetSentNotifications(ctx context.Context, limit, offset int) ([]models.Notification, int, error) {
+	// 1. Get total count of unique notification groups
+	totalQuery := `
+		SELECT COUNT(*) FROM (
+			SELECT 1 FROM notifications 
+			GROUP BY title, message, type, category, group_id, (CASE WHEN group_id IS NULL THEN id::text ELSE NULL END)
 		) sub
-		ORDER BY created_at DESC
-		LIMIT 50
 	`
-	rows, err := database.Pool.Query(ctx, query)
+	var total64 int64
+	err := database.Pool.QueryRow(ctx, totalQuery).Scan(&total64)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	// 2. Get paginated notifications with recipient info using a standard subquery
+	query := `
+		SELECT 
+			sub.id, sub.title, sub.message, sub.type, sub.category, sub.created_at, sub.group_id, sub.recipient_count,
+			CASE 
+				WHEN sub.recipient_count = 1 THEN COALESCE(u.username, 'Người dùng')
+				ELSE 'Toàn hệ thống'
+			END as recipient_name
+		FROM (
+			SELECT 
+				MIN(id::text) as id, 
+				title, 
+				message, 
+				COALESCE(type, 'info') as type, 
+				COALESCE(category, 'system') as category, 
+				MAX(created_at) as created_at, 
+				group_id::text as group_id,
+				COUNT(*) as recipient_count,
+				MIN(user_id::text) as min_user_id
+			FROM notifications
+			GROUP BY title, message, type, category, group_id, (CASE WHEN group_id IS NULL THEN id::text ELSE NULL END)
+		) sub
+		LEFT JOIN users u ON u.id::text = sub.min_user_id
+		ORDER BY sub.created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+	rows, err := database.Pool.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
 	}
 	defer rows.Close()
 
-	var notes []models.Notification
+	notes := []models.Notification{}
 	for rows.Next() {
 		var n models.Notification
-		err := rows.Scan(&n.ID, &n.Title, &n.Message, &n.Type, &n.Category, &n.IsRead, &n.CreatedAt, &n.GroupID)
+		var count64 int64
+		err := rows.Scan(
+			&n.ID, &n.Title, &n.Message, &n.Type, &n.Category, 
+			&n.CreatedAt, &n.GroupID, &count64, &n.RecipientName,
+		)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
+		n.RecipientCount = int(count64)
 		notes = append(notes, n)
 	}
-	return notes, nil
+	return notes, int(total64), nil
 }
+
+
+
+
 
 func AdminDeleteNotification(ctx context.Context, id, groupID string) error {
 	if groupID != "" {
@@ -153,4 +189,20 @@ func MarkAllNotificationsAsRead(ctx context.Context, userID string) error {
 	query := `UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false`
 	_, err := database.Pool.Exec(ctx, query, userID)
 	return err
+}
+
+func GetNotificationByID(ctx context.Context, id string, userID string) (*models.Notification, error) {
+	query := `
+		SELECT id, user_id, title, message, COALESCE(type, 'info'), COALESCE(category, 'system'), is_read, created_at, group_id
+		FROM notifications 
+		WHERE id = $1 AND user_id = $2
+	`
+	var n models.Notification
+	err := database.Pool.QueryRow(ctx, query, id, userID).Scan(
+		&n.ID, &n.UserID, &n.Title, &n.Message, &n.Type, &n.Category, &n.IsRead, &n.CreatedAt, &n.GroupID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
 }

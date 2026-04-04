@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
+	"log"
 
 	"github.com/QuangVuDuc006/mmochill-backend/internal/database"
+	"github.com/QuangVuDuc006/mmochill-backend/internal/models"
 	"github.com/QuangVuDuc006/mmochill-backend/internal/repository"
 	"github.com/gin-gonic/gin"
 )
@@ -45,14 +48,34 @@ func AdminCreateGlobalNotification(c *gin.Context) {
 }
 
 func AdminGetSentNotifications(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 10
+	}
+
+	offset := (page - 1) * limit
+
 	ctx := c.Request.Context()
-	notes, err := repository.AdminGetSentNotifications(ctx)
+	notes, total, err := repository.AdminGetSentNotifications(ctx, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch sent notifications"})
+		log.Printf("[AdminNotifications] Error fetching notifications: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch sent notifications: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, notes)
+
+	log.Printf("[AdminNotifications] Page %d, Limit %d -> Found %d notifications (Total: %d)", page, limit, len(notes), total)
+
+	c.JSON(http.StatusOK, models.AdminNotificationResponse{
+		Notifications: notes,
+		Total:         total,
+	})
 }
+
 
 func AdminDeleteNotification(c *gin.Context) {
 	id := c.Query("id")

@@ -27,7 +27,7 @@ func StreamAdmin(c *gin.Context) {
 	log.Printf("[AdminSSE] New connection established. Token: %s", c.Query("token")[:10]+"...")
 
 	// Subscribe to Admin Topics
-	pubsub := database.RedisClient.Subscribe(ctx, "admin:stats", "admin:withdrawals", "admin:users")
+	pubsub := database.RedisClient.Subscribe(ctx, "admin:stats", "admin:withdrawals", "admin:users", "admin:claims", "admin:notifications")
 	defer func() {
 		log.Printf("[AdminSSE] Connection closed for token: %s", c.Query("token")[:10]+"...")
 		pubsub.Close()
@@ -66,6 +66,10 @@ func StreamAdmin(c *gin.Context) {
 				c.SSEvent("withdrawals_update", msg.Payload)
 			case "admin:users":
 				c.SSEvent("users_update", "reload")
+			case "admin:claims":
+				c.SSEvent("claims_update", "reload")
+			case "admin:notifications":
+				c.SSEvent("admin_notification", "update")
 			}
 			flusher.Flush()
 		}

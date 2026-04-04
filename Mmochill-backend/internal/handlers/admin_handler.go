@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuangVuDuc006/mmochill-backend/internal/database"
 	"github.com/QuangVuDuc006/mmochill-backend/internal/models"
@@ -12,11 +14,29 @@ import (
 )
 
 func GetAdminStats(c *gin.Context) {
-	stats, err := repository.GetAdminStats(c.Request.Context())
+	ctx := c.Request.Context()
+	const cacheKey = "admin:stats:v1"
+
+	// Check Redis Cache trước (TTL 2 phút)
+	if val, err := database.RedisClient.Get(ctx, cacheKey).Result(); err == nil {
+		var stats map[string]interface{}
+		if json.Unmarshal([]byte(val), &stats) == nil {
+			c.JSON(http.StatusOK, stats)
+			return
+		}
+	}
+
+	stats, err := repository.GetAdminStats(ctx)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch stats"})
 		return
 	}
+
+	// Lưu vào Redis Cache (2 phút)
+	if statsJSON, err := json.Marshal(stats); err == nil {
+		database.RedisClient.Set(ctx, cacheKey, statsJSON, 2*time.Minute)
+	}
+
 	c.JSON(http.StatusOK, stats)
 }
 
@@ -24,20 +44,43 @@ func GetUsers(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	search := c.DefaultQuery("search", "")
+	filter := c.DefaultQuery("filter", "")
 	offset := (page - 1) * limit
+	ctx := c.Request.Context()
 
-	users, total, err := repository.GetAllUsers(c.Request.Context(), limit, offset, search)
+	// Priority 6c: Cache admin users listing (TTL 2 phút)
+	usersVersion, _ := database.RedisClient.Get(ctx, "admin:users:version").Result()
+	if usersVersion == "" {
+		usersVersion = "1"
+	}
+	cacheKey := fmt.Sprintf("admin:users:p:%d:l:%d:s:%s:f:%s:v:%s", page, limit, search, filter, usersVersion)
+	if val, err := database.RedisClient.Get(ctx, cacheKey).Result(); err == nil {
+		var result map[string]interface{}
+		if json.Unmarshal([]byte(val), &result) == nil {
+			c.JSON(http.StatusOK, result)
+			return
+		}
+	}
+
+	users, total, err := repository.GetAllUsers(ctx, limit, offset, search, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	result := gin.H{
 		"users": users,
 		"total": total,
 		"page":  page,
 		"limit": limit,
-	})
+	}
+
+	// Lưu vào cache
+	if respJSON, err := json.Marshal(result); err == nil {
+		database.RedisClient.Set(ctx, cacheKey, respJSON, 2*time.Minute)
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 func BanUser(c *gin.Context) {
@@ -88,6 +131,10 @@ func BanUser(c *gin.Context) {
 	// Notify SSE
 	database.RedisClient.Publish(ctx, "admin:users", "update")
 	database.RedisClient.Publish(ctx, "admin:stats", "update")
+	// Invalidate admin stats cache, profile cache của user bị ban, và admin users cache
+	database.RedisClient.Del(ctx, "admin:stats:v1")
+	database.RedisClient.Del(ctx, "user:profile:"+id)
+	database.RedisClient.Incr(ctx, "admin:users:version") // bump version để invalidate toàn bộ users cache
 
 	// Create Notification for the user
 	noteTitle := "Cập nhật trạng thái tài khoản"
@@ -135,6 +182,8 @@ func ApproveWithdrawal(c *gin.Context) {
 	
 	database.RedisClient.Publish(ctx, "admin:withdrawals", "update")
 	database.RedisClient.Publish(ctx, "admin:stats", "update")
+	// Invalidate admin stats cache
+	database.RedisClient.Del(ctx, "admin:stats:v1")
 
 	// Notify User
 	w, _ := repository.GetWithdrawalByID(ctx, id)
@@ -142,6 +191,13 @@ func ApproveWithdrawal(c *gin.Context) {
 		noteMsg := "ADMIN đã bank thành công , yêu cầu bạn check lại ngân hàng"
 		_ = repository.CreateNotification(ctx, nil, w.UserID, "Yêu cầu rút tiền", noteMsg, "success", "system")
 		database.RedisClient.Publish(ctx, "notifications:user:"+w.UserID, "update")
+
+		// Thông báo cho admin
+		adminID := c.GetString("user_id")
+		adminTitle := "Duyệt tiền thành công"
+		adminMsg := fmt.Sprintf("Admin ID %s đã duyệt thành công %d VND cho user %s", adminID, w.Amount, w.UserID)
+		_ = repository.CreateAdminNotification(ctx, nil, adminTitle, adminMsg, "success", "payment", map[string]interface{}{"withdrawal_id": id, "admin_id": adminID})
+		database.RedisClient.Publish(ctx, "admin:notifications", "update")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Withdrawal approved", "id": id})
@@ -157,6 +213,8 @@ func RejectWithdrawal(c *gin.Context) {
 
 	database.RedisClient.Publish(ctx, "admin:withdrawals", "update")
 	database.RedisClient.Publish(ctx, "admin:stats", "update")
+	// Invalidate admin stats cache
+	database.RedisClient.Del(ctx, "admin:stats:v1")
 
 	// Notify User
 	w, _ := repository.GetWithdrawalByID(ctx, id)
@@ -166,4 +224,65 @@ func RejectWithdrawal(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Withdrawal rejected", "id": id})
+}
+func GetAdminClaims(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	offset := (page - 1) * limit
+
+	claims, total, err := repository.GetAllClaims(c.Request.Context(), limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"claims": claims,
+		"total":  total,
+		"page":   page,
+		"limit":  limit,
+	})
+}
+func GetAdminAlerts(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	category := c.Query("category")
+	offset := (page - 1) * limit
+
+	ctx := c.Request.Context()
+	alerts, total, err := repository.GetAdminNotifications(ctx, limit, offset, category)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var unreadCount int
+	database.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM admin_notifications WHERE is_read = false").Scan(&unreadCount)
+
+	c.JSON(http.StatusOK, gin.H{
+		"alerts":       alerts,
+		"total":        total,
+		"unread_count": unreadCount,
+		"page":         page,
+		"limit":        limit,
+	})
+}
+
+func MarkAdminAlertsAsRead(c *gin.Context) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// If empty, mark all as read is handled by repository
+	}
+
+	ctx := c.Request.Context()
+	if err := repository.MarkAdminNotificationsAsRead(ctx, req.IDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	database.RedisClient.Publish(ctx, "admin:notifications", "update")
+
+	c.JSON(http.StatusOK, gin.H{"message": "Notifications marked as read"})
 }

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/QuangVuDuc006/mmochill-backend/internal/database"
@@ -9,20 +10,40 @@ import (
 )
 
 func CreateUser(user *models.User) error {
-	query := `INSERT INTO users (email, username, password_hash, display_id, role, balance, referred_by, status, created_at, updated_at) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW()) 
-            RETURNING id, referral_code`
-	err := database.Pool.QueryRow(context.Background(), query,
-		user.Email, user.Username, user.Password, user.DisplayID, user.Role, user.Balance,
-		user.ReferredBy, "active").Scan(&user.ID, &user.ReferralCode)
-	return err
+	ctx := context.Background()
+	tx, err := database.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var serialID int
+	query := `INSERT INTO users (email, username, password_hash, role, balance, referred_by, status, created_at, updated_at, is_vip) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8) 
+            RETURNING id, referral_code, serial_id`
+	err = tx.QueryRow(ctx, query,
+		user.Email, user.Username, user.Password, user.Role, user.Balance,
+		user.ReferredBy, "active", user.IsVIP).Scan(&user.ID, &user.ReferralCode, &serialID)
+	if err != nil {
+		return err
+	}
+
+	// Cập nhật DisplayID dựa trên serial_id
+	user.DisplayID = fmt.Sprintf("2609%d", serialID)
+	updateQuery := `UPDATE users SET display_id = $1 WHERE id = $2`
+	_, err = tx.Exec(ctx, updateQuery, user.DisplayID, user.ID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 func GetUserByEmail(email string) (*models.User, error) {
-	query := `SELECT u.id, u.email, COALESCE(u.username, ''), u.password_hash, COALESCE(u.full_name, ''), COALESCE(u.phone, ''), COALESCE(u.display_id, ''), u.role, 
+    query := `SELECT u.id, u.email, COALESCE(u.username, ''), u.password_hash, COALESCE(u.full_name, ''), COALESCE(u.phone, ''), COALESCE(u.display_id, ''), u.role, 
             COALESCE(w.balance, 0), COALESCE(w.locked_amount, 0), COALESCE(w.peak_balance, 0), COALESCE(w.total_earned, 0), COALESCE(w.total_withdrawn, 0),
-            COALESCE(u.referral_code, ''), COALESCE(u.referred_by, ''), COALESCE(u.avatar_url, ''), COALESCE(u.status, 'active'), 
-            u.created_at, COALESCE(u.updated_at, u.created_at) 
+            COALESCE(u.referral_code, ''), u.referred_by, COALESCE(u.avatar_url, ''), COALESCE(u.status, 'active'), 
+            u.created_at, COALESCE(u.updated_at, u.created_at), u.sound_enabled, u.is_vip 
             FROM users u
             LEFT JOIN wallets w ON u.id = w.user_id
             WHERE u.email = $1`
@@ -30,7 +51,7 @@ func GetUserByEmail(email string) (*models.User, error) {
 	err := database.Pool.QueryRow(context.Background(), query, email).Scan(
 		&user.ID, &user.Email, &user.Username, &user.Password, &user.FullName, &user.Phone, &user.DisplayID, &user.Role,
 		&user.Balance, &user.LockedAmount, &user.PeakBalance, &user.TotalEarned, &user.TotalWithdrawn,
-		&user.ReferralCode, &user.ReferredBy, &user.AvatarURL, &user.Status, &user.CreatedAt, &user.UpdatedAt,
+		&user.ReferralCode, &user.ReferredBy, &user.AvatarURL, &user.Status, &user.CreatedAt, &user.UpdatedAt, &user.SoundEnabled, &user.IsVIP,
 	)
 	if err != nil {
 		return nil, err
@@ -41,8 +62,8 @@ func GetUserByEmail(email string) (*models.User, error) {
 func GetUserByDisplayID(displayID string) (*models.User, error) {
 	query := `SELECT u.id, u.email, COALESCE(u.username, ''), u.password_hash, COALESCE(u.full_name, ''), COALESCE(u.phone, ''), COALESCE(u.display_id, ''), u.role, 
             COALESCE(w.balance, 0), COALESCE(w.locked_amount, 0), COALESCE(w.peak_balance, 0), COALESCE(w.total_earned, 0), COALESCE(w.total_withdrawn, 0),
-            COALESCE(u.referral_code, ''), COALESCE(u.referred_by, ''), COALESCE(u.avatar_url, ''), COALESCE(u.status, 'active'), 
-            u.created_at, COALESCE(u.updated_at, u.created_at) 
+            COALESCE(u.referral_code, ''), u.referred_by, COALESCE(u.avatar_url, ''), COALESCE(u.status, 'active'), 
+            u.created_at, COALESCE(u.updated_at, u.created_at), u.sound_enabled, u.is_vip 
             FROM users u
             LEFT JOIN wallets w ON u.id = w.user_id
             WHERE u.display_id = $1`
@@ -50,7 +71,7 @@ func GetUserByDisplayID(displayID string) (*models.User, error) {
 	err := database.Pool.QueryRow(context.Background(), query, displayID).Scan(
 		&user.ID, &user.Email, &user.Username, &user.Password, &user.FullName, &user.Phone, &user.DisplayID, &user.Role,
 		&user.Balance, &user.LockedAmount, &user.PeakBalance, &user.TotalEarned, &user.TotalWithdrawn,
-		&user.ReferralCode, &user.ReferredBy, &user.AvatarURL, &user.Status, &user.CreatedAt, &user.UpdatedAt,
+		&user.ReferralCode, &user.ReferredBy, &user.AvatarURL, &user.Status, &user.CreatedAt, &user.UpdatedAt, &user.SoundEnabled, &user.IsVIP,
 	)
 	if err != nil {
 		return nil, err
@@ -61,8 +82,8 @@ func GetUserByDisplayID(displayID string) (*models.User, error) {
 func GetUserByReferralCode(code string) (*models.User, error) {
 	query := `SELECT u.id, u.email, COALESCE(u.username, ''), u.password_hash, COALESCE(u.full_name, ''), COALESCE(u.phone, ''), COALESCE(u.display_id, ''), u.role, 
             COALESCE(w.balance, 0), COALESCE(w.locked_amount, 0), COALESCE(w.peak_balance, 0), COALESCE(w.total_earned, 0), COALESCE(w.total_withdrawn, 0),
-            COALESCE(u.referral_code, ''), COALESCE(u.referred_by, ''), COALESCE(u.avatar_url, ''), COALESCE(u.status, 'active'), 
-            u.created_at, COALESCE(u.updated_at, u.created_at) 
+            COALESCE(u.referral_code, ''), u.referred_by, COALESCE(u.avatar_url, ''), COALESCE(u.status, 'active'), 
+            u.created_at, COALESCE(u.updated_at, u.created_at), u.sound_enabled, u.is_vip 
             FROM users u
             LEFT JOIN wallets w ON u.id = w.user_id
             WHERE u.referral_code = $1`
@@ -70,19 +91,12 @@ func GetUserByReferralCode(code string) (*models.User, error) {
 	err := database.Pool.QueryRow(context.Background(), query, code).Scan(
 		&user.ID, &user.Email, &user.Username, &user.Password, &user.FullName, &user.Phone, &user.DisplayID, &user.Role,
 		&user.Balance, &user.LockedAmount, &user.PeakBalance, &user.TotalEarned, &user.TotalWithdrawn,
-		&user.ReferralCode, &user.ReferredBy, &user.AvatarURL, &user.Status, &user.CreatedAt, &user.UpdatedAt,
+		&user.ReferralCode, &user.ReferredBy, &user.AvatarURL, &user.Status, &user.CreatedAt, &user.UpdatedAt, &user.SoundEnabled, &user.IsVIP,
 	)
 	if err != nil {
 		return nil, err
 	}
 	return user, nil
-}
-
-func GetLastDisplayID() (int, error) {
-	var lastID int
-	query := `SELECT COALESCE(MAX(CAST(SUBSTRING(display_id, 5) AS INTEGER)), 0) FROM users`
-	err := database.Pool.QueryRow(context.Background(), query).Scan(&lastID)
-	return lastID, err
 }
 
 func CreateAdminIfNotExists(username, email, passwordHash string) error {
@@ -143,8 +157,8 @@ func UpdateEmail(userID, newEmail string) error {
 func GetUserByID(id string) (*models.User, error) {
 	query := `SELECT u.id, u.email, COALESCE(u.username, ''), u.password_hash, COALESCE(u.full_name, ''), COALESCE(u.phone, ''), COALESCE(u.display_id, ''), u.role, 
             COALESCE(w.balance, 0), COALESCE(w.locked_amount, 0), COALESCE(w.peak_balance, 0), COALESCE(w.total_earned, 0), COALESCE(w.total_withdrawn, 0),
-            COALESCE(u.referral_code, ''), COALESCE(u.referred_by, ''), COALESCE(u.avatar_url, ''), COALESCE(u.status, 'active'), 
-            u.created_at, COALESCE(u.updated_at, u.created_at) 
+            COALESCE(u.referral_code, ''), u.referred_by, COALESCE(u.avatar_url, ''), COALESCE(u.status, 'active'), 
+            u.created_at, COALESCE(u.updated_at, u.created_at), u.sound_enabled, u.is_vip 
             FROM users u
             LEFT JOIN wallets w ON u.id = w.user_id
             WHERE u.id = $1`
@@ -152,7 +166,7 @@ func GetUserByID(id string) (*models.User, error) {
 	err := database.Pool.QueryRow(context.Background(), query, id).Scan(
 		&user.ID, &user.Email, &user.Username, &user.Password, &user.FullName, &user.Phone, &user.DisplayID, &user.Role,
 		&user.Balance, &user.LockedAmount, &user.PeakBalance, &user.TotalEarned, &user.TotalWithdrawn,
-		&user.ReferralCode, &user.ReferredBy, &user.AvatarURL, &user.Status, &user.CreatedAt, &user.UpdatedAt,
+		&user.ReferralCode, &user.ReferredBy, &user.AvatarURL, &user.Status, &user.CreatedAt, &user.UpdatedAt, &user.SoundEnabled, &user.IsVIP,
 	)
 	if err != nil {
 		return nil, err
@@ -194,24 +208,40 @@ func UpdateCredentialSignCount(ctx context.Context, credID []byte, signCount uin
 	return err
 }
 
-func GetAllUsers(ctx context.Context, limit, offset int, search string) ([]models.User, int, error) {
+func GetAllUsers(ctx context.Context, limit, offset int, search string, filter string) ([]models.User, int, error) {
 	var users []models.User
 	var total int
 
+	// Base conditions for counting total
+	whereClause := "WHERE (u.email ILIKE $1 OR u.username ILIKE $1 OR u.full_name ILIKE $1)"
+	if filter == "has_completed_tasks" {
+		whereClause += " AND EXISTS (SELECT 1 FROM user_task_claims c WHERE c.user_id = u.id AND c.status = 'completed')"
+	}
+
 	// Count total for pagination
-	countQuery := `SELECT COUNT(*) FROM users WHERE email ILIKE $1 OR username ILIKE $1 OR full_name ILIKE $1`
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users u %s", whereClause)
 	err := database.Pool.QueryRow(ctx, countQuery, "%"+search+"%").Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	query := `SELECT id, email, COALESCE(username, ''), COALESCE(full_name, ''), COALESCE(display_id, ''), role, balance, 
-            COALESCE(status, 'active'), created_at 
-            FROM users 
-            WHERE email ILIKE $3 OR username ILIKE $3 OR full_name ILIKE $3
-            ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+	query := fmt.Sprintf(`
+		SELECT u.id, u.email, COALESCE(u.username, ''), COALESCE(u.full_name, ''), COALESCE(u.display_id, ''), u.role, 
+		COALESCE(w.balance, 0) as balance, 
+		COALESCE(u.status, 'active'), u.created_at, COALESCE(u.avatar_url, ''),
+		COALESCE(tc.completed_count, 0) as completed_tasks_count
+		FROM users u
+		LEFT JOIN wallets w ON u.id = w.user_id
+		LEFT JOIN (
+			SELECT user_id, COUNT(*) as completed_count
+			FROM user_task_claims
+			WHERE status = 'completed'
+			GROUP BY user_id
+		) tc ON tc.user_id = u.id
+		%s
+		ORDER BY u.created_at DESC LIMIT $2 OFFSET $3`, whereClause)
 
-	rows, err := database.Pool.Query(ctx, query, limit, offset, "%"+search+"%")
+	rows, err := database.Pool.Query(ctx, query, "%"+search+"%", limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -219,7 +249,7 @@ func GetAllUsers(ctx context.Context, limit, offset int, search string) ([]model
 
 	for rows.Next() {
 		var u models.User
-		err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.FullName, &u.DisplayID, &u.Role, &u.Balance, &u.Status, &u.CreatedAt)
+		err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.FullName, &u.DisplayID, &u.Role, &u.Balance, &u.Status, &u.CreatedAt, &u.AvatarURL, &u.CompletedTasksCount)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -231,5 +261,60 @@ func GetAllUsers(ctx context.Context, limit, offset int, search string) ([]model
 func UpdateUserStatus(ctx context.Context, userID, status string) error {
 	query := `UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2`
 	_, err := database.Pool.Exec(ctx, query, status, userID)
+	return err
+}
+
+func GetReferralStats(ctx context.Context, userID string) (int, int64, []models.User, error) {
+	var totalInvited int
+	var totalCommission int64
+	invitedUsers := []models.User{}
+
+	// 1. Đếm tổng số người đã mời
+	countQuery := `SELECT COUNT(*) FROM users WHERE referred_by = $1`
+	err := database.Pool.QueryRow(ctx, countQuery, userID).Scan(&totalInvited)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("failed to count invited users: %v", err)
+	}
+
+	// 2. Tính tổng hoa hồng nhận được
+	commissionQuery := `
+		SELECT COALESCE(SUM(wt.amount), 0)
+		FROM wallet_transactions wt
+		JOIN wallets w ON wt.wallet_id = w.id
+		WHERE w.user_id = $1 AND wt.type = 'referral_bonus'
+	`
+	err = database.Pool.QueryRow(ctx, commissionQuery, userID).Scan(&totalCommission)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("failed to sum commissions: %v", err)
+	}
+
+	// 3. Lấy danh sách bạn bè đã mời (giới hạn một số thông tin cần thiết)
+	usersQuery := `
+		SELECT id, email, COALESCE(username, ''), COALESCE(full_name, ''), created_at 
+		FROM users 
+		WHERE referred_by = $1 
+		ORDER BY created_at DESC
+	`
+	rows, err := database.Pool.Query(ctx, usersQuery, userID)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("failed to get invited users: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var u models.User
+		err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.FullName, &u.CreatedAt)
+		if err != nil {
+			return 0, 0, nil, fmt.Errorf("failed to scan user: %v", err)
+		}
+		invitedUsers = append(invitedUsers, u)
+	}
+
+	return totalInvited, totalCommission, invitedUsers, nil
+}
+
+func UpdateSoundPreference(userID string, enabled bool) error {
+	query := `UPDATE users SET sound_enabled = $1, updated_at = NOW() WHERE id = $2`
+	_, err := database.Pool.Exec(context.Background(), query, enabled, userID)
 	return err
 }

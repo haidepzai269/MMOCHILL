@@ -9,10 +9,8 @@ import (
 func AdminRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, exists := c.Get("role")
-		adminToken := c.GetHeader("X-Admin-Token")
 		
-		// Cho phép nếu có role admin TRONG JWT HOẶC có mã token admin hợp lệ trong Header
-		if (exists && role == "admin") || adminToken == "mmochill-admin-2026" {
+		if exists && role == "admin" {
 			c.Next()
 			return
 		}
