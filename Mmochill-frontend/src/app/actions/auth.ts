@@ -26,24 +26,41 @@ export async function adminLogin(formData: FormData) {
     }
 
     const cookieStore = await cookies();
-    // Lưu cùng lúc user_token (cho API chung) và admin_token (cho middleware admin)
-    cookieStore.set("user_token", data.token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7,
+    
+    // Set Cookies
+    const cookieOptions = {
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax" as const,
+    };
+
+    cookieStore.set("access_token", data.access_token, {
+        ...cookieOptions,
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 7, // 7 days
     });
 
-    cookieStore.set("user_token_local", data.token, {
-      httpOnly: false, // Để Client đọc được cho SSE
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7,
+    cookieStore.set("user_token", data.access_token, { // Alias for compatibility
+        ...cookieOptions,
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 7,
     });
-    
-    cookieStore.set("admin_token", "demo_admin_token", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24,
+
+    cookieStore.set("refresh_token", data.refresh_token, {
+        ...cookieOptions,
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 7, // 7 days
+    });
+
+    cookieStore.set("user_token_local", data.access_token, {
+        ...cookieOptions,
+        httpOnly: false,
+        maxAge: 60 * 60 * 24 * 7,
+    });
+
+    cookieStore.set("user_role", data.user.role, {
+        ...cookieOptions,
+        httpOnly: false,
+        maxAge: 60 * 60 * 24 * 7,
     });
 
     return { success: true };
@@ -82,23 +99,39 @@ export async function adminFinishPasskeyLogin(email: string, credential: any) {
       }
   
       const cookieStore = await cookies();
-      cookieStore.set("user_token", data.token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 60 * 60 * 24 * 7,
+      const cookieOptions = {
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax" as const,
+      };
+
+      cookieStore.set("access_token", data.access_token, {
+          ...cookieOptions,
+          httpOnly: true,
+          maxAge: 60 * 60 * 24 * 7,
       });
 
-      cookieStore.set("user_token_local", data.token, {
-        httpOnly: false,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 60 * 60 * 24 * 7,
+      cookieStore.set("user_token", data.access_token, {
+          ...cookieOptions,
+          httpOnly: true,
+          maxAge: 60 * 60 * 24 * 7,
       });
-      
-      cookieStore.set("admin_token", "demo_admin_token", {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 60 * 60 * 24,
+
+      cookieStore.set("refresh_token", data.refresh_token, {
+          ...cookieOptions,
+          httpOnly: true,
+          maxAge: 60 * 60 * 24 * 7,
+      });
+
+      cookieStore.set("user_token_local", data.access_token, {
+          ...cookieOptions,
+          httpOnly: false,
+          maxAge: 60 * 60 * 24 * 7,
+      });
+
+      cookieStore.set("user_role", data.user.role, {
+          ...cookieOptions,
+          httpOnly: false,
+          maxAge: 60 * 60 * 24 * 7,
       });
   
       return { success: true };
@@ -155,8 +188,12 @@ export async function adminFinishPasskeyRegistration(credential: any) {
 
 export async function adminLogout() {
   const cookieStore = await cookies();
-  cookieStore.delete("admin_token");
+  cookieStore.delete("access_token");
+  cookieStore.delete("refresh_token");
+  cookieStore.delete("user_token");
+  cookieStore.delete("user_role");
   cookieStore.delete("user_token_local");
+  cookieStore.delete("admin_token");
   redirect("/admin/login");
 }
 
@@ -178,16 +215,38 @@ export async function userLogin(formData: FormData) {
 
     const data = await res.json();
     const cookieStore = await cookies();
-    cookieStore.set("user_token", data.token, {
-        httpOnly: true,
+    const cookieOptions = {
         secure: process.env.NODE_ENV === "production",
-        maxAge: 60 * 60 * 24 * 7, // 1 week
+        sameSite: "lax" as const,
+    };
+
+    cookieStore.set("access_token", data.access_token, {
+        ...cookieOptions,
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 7,
     });
 
-    cookieStore.set("user_token_local", data.token, {
+    cookieStore.set("user_token", data.access_token, {
+        ...cookieOptions,
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 7,
+    });
+
+    cookieStore.set("refresh_token", data.refresh_token, {
+        ...cookieOptions,
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 7,
+    });
+
+    cookieStore.set("user_token_local", data.access_token, {
+        ...cookieOptions,
         httpOnly: false,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        maxAge: 60 * 60 * 24 * 7,
+    });
+
+    cookieStore.set("user_role", data.user.role, {
+        ...cookieOptions,
+        httpOnly: false,
         maxAge: 60 * 60 * 24 * 7,
     });
 
@@ -199,7 +258,10 @@ export async function userLogin(formData: FormData) {
 
 export async function userLogout() {
     const cookieStore = await cookies();
+    cookieStore.delete("access_token");
+    cookieStore.delete("refresh_token");
     cookieStore.delete("user_token");
+    cookieStore.delete("user_role");
     cookieStore.delete("user_token_local");
     redirect("/login");
 }
@@ -207,8 +269,8 @@ export async function userLogout() {
 export async function userRegister(formData: FormData, referredByCode?: string) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
-  const username = formData.get("username") as string || email.split('@')[0];
-  const full_name = formData.get("full_name") as string || username;
+  const full_name = formData.get("full_name") as string;
+  const username = full_name; // Dùng full_name để gửi lên làm username
 
   try {
     const res = await fetch(`${BACKEND_URL}/auth/register`, {
@@ -217,7 +279,6 @@ export async function userRegister(formData: FormData, referredByCode?: string) 
       body: JSON.stringify({ 
         email, 
         password, 
-        username, 
         full_name,
         referred_by_code: referredByCode 
       }),
@@ -230,16 +291,38 @@ export async function userRegister(formData: FormData, referredByCode?: string) 
 
     const data = await res.json();
     const cookieStore = await cookies();
-    cookieStore.set("user_token", data.token, {
-        httpOnly: true,
+    const cookieOptions = {
         secure: process.env.NODE_ENV === "production",
+        sameSite: "lax" as const,
+    };
+
+    cookieStore.set("access_token", data.access_token, {
+        ...cookieOptions,
+        httpOnly: true,
         maxAge: 60 * 60 * 24 * 7,
     });
 
-    cookieStore.set("user_token_local", data.token, {
+    cookieStore.set("user_token", data.access_token, {
+        ...cookieOptions,
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 7,
+    });
+
+    cookieStore.set("refresh_token", data.refresh_token, {
+        ...cookieOptions,
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 7,
+    });
+
+    cookieStore.set("user_token_local", data.access_token, {
+        ...cookieOptions,
         httpOnly: false,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        maxAge: 60 * 60 * 24 * 7,
+    });
+
+    cookieStore.set("user_role", data.user.role, {
+        ...cookieOptions,
+        httpOnly: false,
         maxAge: 60 * 60 * 24 * 7,
     });
     return { success: true, user: data.user };
@@ -250,7 +333,7 @@ export async function userRegister(formData: FormData, referredByCode?: string) 
 
 export async function getUserProfile() {
   const cookieStore = await cookies();
-  const token = cookieStore.get("user_token")?.value;
+  const token = cookieStore.get("access_token")?.value || cookieStore.get("user_token")?.value;
 
   if (!token) return null;
 
@@ -260,7 +343,7 @@ export async function getUserProfile() {
       headers: { 
         "Authorization": `Bearer ${token}` 
       },
-      next: { revalidate: 60 } // Cache for 1 min
+      next: { revalidate: 0 } // No cache for fresh profile data
     });
 
     if (!res.ok) return null;
@@ -273,7 +356,7 @@ export async function getUserProfile() {
 }
 export async function updateProfile(fullName: string, avatarURL: string) {
   const cookieStore = await cookies();
-  const token = cookieStore.get("user_token")?.value;
+  const token = cookieStore.get("access_token")?.value || cookieStore.get("user_token")?.value;
 
   if (!token) return { success: false, error: "Unauthorized" };
 
@@ -300,7 +383,7 @@ export async function updateProfile(fullName: string, avatarURL: string) {
 
 export async function uploadAvatar(formData: FormData) {
   const cookieStore = await cookies();
-  const token = cookieStore.get("user_token")?.value;
+  const token = cookieStore.get("access_token")?.value || cookieStore.get("user_token")?.value;
 
   if (!token) return { success: false, error: "Unauthorized" };
 
@@ -357,7 +440,7 @@ export async function resetPassword(token: string, password: string) {
 
 export async function changePassword(current: string, next: string) {
   const cookieStore = await cookies();
-  const token = cookieStore.get("user_token")?.value;
+  const token = cookieStore.get("access_token")?.value || cookieStore.get("user_token")?.value;
 
   if (!token) return { success: false, error: "Unauthorized" };
 
@@ -381,7 +464,7 @@ export async function changePassword(current: string, next: string) {
 
 export async function changeEmail(newEmail: string, password: string) {
   const cookieStore = await cookies();
-  const token = cookieStore.get("user_token")?.value;
+  const token = cookieStore.get("access_token")?.value || cookieStore.get("user_token")?.value;
 
   if (!token) return { success: false, error: "Unauthorized" };
 

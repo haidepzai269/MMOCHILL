@@ -3,10 +3,13 @@ import Navbar from "@/components/navbar";
 import BottomNav from "@/components/bottom-nav";
 import Sidebar from "@/components/sidebar";
 import PCHeader from "@/components/pc-header";
+import NotificationBanner from "@/components/notification-banner";
+import { FacebookIcon } from "@/components/icons/facebook-icon";
+import { ZaloIcon } from "@/components/icons/zalo-icon";
 import { Facebook, MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { ZaloIcon } from "@/components/icons/zalo-icon";
+import Footer from "@/components/footer";
 
 export default function DashboardLayout({
   children,
@@ -18,8 +21,10 @@ export default function DashboardLayout({
       {/* Mobile Layout */}
       <div className="md:hidden flex flex-col min-h-screen w-full bg-background relative overflow-hidden">
         <Navbar />
+        <NotificationBanner />
         <main className="flex-1 overflow-y-auto pb-24 p-4 no-scrollbar relative w-full h-full">
           {children}
+          <Footer />
         </main>
 
         {/* Floating Contact Buttons for Mobile */}
@@ -39,9 +44,10 @@ export default function DashboardLayout({
             <Link
               href="https://m.me/quang.vu.uc.579118"
               target="_blank"
-              className="w-13 h-13 rounded-full bg-[#1877F2] shadow-[0_4px_15px_rgba(24,119,242,0.4)] flex items-center justify-center text-white ring-2 ring-white/20 p-3"
+              className="w-13 h-13 rounded-full bg-[#1877F2] shadow-[0_4px_15px_rgba(24,119,242,0.4)] flex items-center justify-center text-white ring-2 ring-white/20 overflow-hidden"
+              title="Facebook"
             >
-              <Facebook className="w-6 h-6 shrink-0" />
+              <FacebookIcon className="w-full h-full" />
             </Link>
           </motion.div>
           <motion.div
@@ -59,9 +65,10 @@ export default function DashboardLayout({
             <Link
               href="https://zalo.me/0399109399"
               target="_blank"
-              className="w-13 h-13 rounded-full bg-[#0068FF] shadow-[0_4px_15px_rgba(0,104,255,0.4)] flex items-center justify-center text-white ring-2 ring-white/20 p-3"
+              className="w-13 h-13 rounded-full bg-[#0068FF] shadow-[0_4px_15px_rgba(0,104,255,0.4)] flex items-center justify-center text-white ring-2 ring-white/20 overflow-hidden"
+              title="Zalo"
             >
-              <ZaloIcon className="w-6 h-6 shrink-0" />
+              <ZaloIcon className="w-full h-full" />
             </Link>
           </motion.div>
         </div>
@@ -75,7 +82,10 @@ export default function DashboardLayout({
         <div className="flex-1 flex flex-col h-full overflow-hidden relative">
           <PCHeader />
           <main className="flex-1 overflow-y-auto bg-muted/30 p-8 no-scrollbar">
-            <div className="max-w-7xl mx-auto">{children}</div>
+            <div className="max-w-7xl mx-auto">
+              {children}
+              <Footer />
+            </div>
           </main>
         </div>
       </div>

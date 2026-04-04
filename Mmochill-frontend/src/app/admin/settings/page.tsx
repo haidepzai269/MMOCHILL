@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Settings as SettingsIcon, Save, Bell, Shield, Database, Globe, Fingerprint, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Settings as SettingsIcon, Save, Bell, Shield, Database, Globe, Fingerprint, Loader2, CheckCircle2, AlertCircle, Palette } from "lucide-react";
 import { adminBeginPasskeyRegistration, adminFinishPasskeyRegistration } from "@/app/actions/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import Link from "next/link";
 
 // Helper to convert base64url to Uint8Array
 function base64urlToUint8Array(base64url: string) {
@@ -85,10 +86,10 @@ export default function AdminSettingsPage() {
   };
 
   const sections = [
-    { id: "general", title: "General Settings", desc: "Basic platform configuration", icon: Globe },
-    { id: "notifications", title: "Notification Settings", desc: "Manage system-wide alerts", icon: Bell },
-    { id: "security", title: "Security & Access", desc: "Passkeys, permissions and logs", icon: Shield },
-    { id: "database", title: "Database & Backups", desc: "Infrastructure management", icon: Database },
+    { id: "general", title: "General Settings", desc: "Basic platform configuration", icon: Globe, href: "/admin/settings" },
+    { id: "notifications", title: "Notification Settings", desc: "Manage system-wide alerts", icon: Bell, href: "/admin/notifications" },
+    { id: "appearance", title: "Giao diện & Âm thanh", desc: "Màu sắc, sự kiện và SFX", icon: Palette, href: "/admin/appearance" },
+    { id: "database", title: "Database & Backups", desc: "Infrastructure management", icon: Database, href: "/admin/settings" },
   ];
 
   return (
@@ -156,7 +157,11 @@ export default function AdminSettingsPage() {
         {/* Other Sections */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {sections.filter(s => s.id !== 'security').map((section) => (
-            <div key={section.title} className="bg-slate-900/20 border border-white/5 rounded-3xl p-6 hover:border-white/10 transition-all cursor-pointer group">
+            <Link 
+              key={section.id} 
+              href={section.href}
+              className="bg-slate-900/20 border border-white/5 rounded-3xl p-6 hover:border-primary/20 hover:bg-primary/[0.02] transition-all cursor-pointer group"
+            >
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-2xl bg-white/5 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
                   <section.icon className="w-5 h-5 text-slate-400 group-hover:text-primary" />
@@ -166,7 +171,7 @@ export default function AdminSettingsPage() {
                   <p className="text-xs text-slate-500">{section.desc}</p>
                 </div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </div>

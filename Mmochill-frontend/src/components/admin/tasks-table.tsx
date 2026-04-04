@@ -22,8 +22,9 @@ export default function TasksTable() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<DatabaseTask | null>(null);
   
-  // Delete Dialog state
-  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
+  // Selection & Delete states
+  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const [tasksToDelete, setTasksToDelete] = useState<string[]>([]);
 
   const fetchData = async () => {
     setIsLoadingData(true);
@@ -72,18 +73,39 @@ export default function TasksTable() {
   };
 
   const handleDelete = async () => {
-    if (taskToDelete) {
+    if (tasksToDelete.length > 0) {
       startTransition(async () => {
-        const res = await deleteTask(taskToDelete);
-        if (res.success) {
-          toast.success("Task deleted successfully!");
-          await fetchData();
-          setTaskToDelete(null);
-        } else {
-          toast.error("Error deleting task: " + res.error);
-        }
+        let successCount = 0;
+        let failsCount = 0;
+        
+        await Promise.all(tasksToDelete.map(async (id) => {
+           const res = await deleteTask(id);
+           if (res.success) successCount++;
+           else failsCount++;
+        }));
+
+        if (successCount > 0) toast.success(`Deleted ${successCount} tasks successfully!`);
+        if (failsCount > 0) toast.error(`Failed to delete ${failsCount} tasks.`);
+        
+        await fetchData();
+        setTasksToDelete([]);
+        setSelectedTasks([]);
       });
     }
+  };
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedTasks(filteredTasks.map(t => t.id));
+    } else {
+      setSelectedTasks([]);
+    }
+  };
+
+  const toggleSelectTask = (id: string) => {
+    setSelectedTasks(prev => 
+      prev.includes(id) ? prev.filter(taskId => taskId !== id) : [...prev, id]
+    );
   };
 
   const handleToggleStatus = async (id: string, currentStatus: TaskStatus) => {
@@ -133,6 +155,24 @@ export default function TasksTable() {
         >
           <PlusCircle className="w-4 h-4" /> Add New Task
         </button>
+
+        <AnimatePresence>
+          {selectedTasks.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+            >
+              <button 
+                onClick={() => setTasksToDelete(selectedTasks)}
+                disabled={isPending}
+                className="w-full sm:w-auto bg-red-500/10 text-red-500 border border-red-500/20 px-4 py-2 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors shadow-sm disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" /> Delete ({selectedTasks.length})
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Table */}
@@ -140,7 +180,15 @@ export default function TasksTable() {
         <table className="w-full text-left text-sm whitespace-nowrap">
           <thead className="bg-muted/50 text-muted-foreground text-xs uppercase font-medium">
             <tr>
-              <th className="px-6 py-4">Task Name</th>
+              <th className="px-6 py-4 w-12">
+                <input 
+                  type="checkbox" 
+                  checked={filteredTasks.length > 0 && selectedTasks.length === filteredTasks.length}
+                  onChange={handleSelectAll}
+                  className="rounded border-border/50 text-primary focus:ring-primary/20 bg-muted"
+                />
+              </th>
+              <th className="px-4 py-4">Task Name</th>
               <th className="px-6 py-4">Target URL</th>
               <th className="px-6 py-4">Reward</th>
               <th className="px-6 py-4">Status</th>
@@ -165,8 +213,16 @@ export default function TasksTable() {
               </tr>
             ) : (
               filteredTasks.map((task) => (
-                <tr key={task.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-6 py-4 font-medium flex items-center gap-3">
+                <tr key={task.id} className={`transition-colors ${selectedTasks.includes(task.id) ? 'bg-primary/5' : 'hover:bg-muted/30'}`}>
+                  <td className="px-6 py-4">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedTasks.includes(task.id)}
+                      onChange={() => toggleSelectTask(task.id)}
+                      className="rounded border-border/50 text-primary focus:ring-primary/20 bg-muted"
+                    />
+                  </td>
+                  <td className="px-4 py-4 font-medium flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary text-xs uppercase">
                       {task.type.charAt(0)}
                     </div>
@@ -199,7 +255,7 @@ export default function TasksTable() {
                       <button onClick={() => openEditModal(task)} disabled={isPending} className="p-2 hover:bg-muted rounded-lg hover:text-foreground transition-colors disabled:opacity-50">
                         <Edit className="w-4 h-4" />
                       </button>
-                      <button onClick={() => setTaskToDelete(task.id)} disabled={isPending} className="p-2 hover:bg-red-500/10 rounded-lg hover:text-red-500 transition-colors disabled:opacity-50">
+                      <button onClick={() => setTasksToDelete([task.id])} disabled={isPending} className="p-2 hover:bg-red-500/10 rounded-lg hover:text-red-500 transition-colors disabled:opacity-50">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -265,12 +321,22 @@ export default function TasksTable() {
                      </select>
                   </div>
                   <div>
-                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Status</label>
-                     <select name="status" defaultValue={editingTask?.status || 'active'} className="w-full bg-muted/50 border border-border/50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none">
-                       <option value="active">Active</option>
-                       <option value="inactive">Inactive</option>
+                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Provider</label>
+                     <select name="provider" defaultValue={editingTask?.provider || 'taplayma'} className="w-full bg-muted/50 border border-border/50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none">
+                       <option value="taplayma">TapLayMa.com</option>
+                       <option value="nhapma">NhapMa.com</option>
+                       <option value="traffic68">Traffic68.com</option>
+                       <option value="manual">Manual / Others</option>
                      </select>
                   </div>
+                </div>
+
+                <div>
+                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Status</label>
+                   <select name="status" defaultValue={editingTask?.status || 'active'} className="w-full bg-muted/50 border border-border/50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none">
+                     <option value="active">Active</option>
+                     <option value="inactive">Inactive</option>
+                   </select>
                 </div>
 
                 <div className="mt-4 flex gap-3">
@@ -289,14 +355,14 @@ export default function TasksTable() {
 
       {/* Delete Confirmation Dialog */}
       <AnimatePresence>
-        {taskToDelete && (
+        {tasksToDelete.length > 0 && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }} 
               className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-              onClick={() => setTaskToDelete(null)}
+              onClick={() => setTasksToDelete([])}
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }} 
@@ -308,10 +374,10 @@ export default function TasksTable() {
                 <AlertCircle className="w-6 h-6" />
               </div>
               <h3 className="font-bold text-lg mb-1">Delete Task?</h3>
-              <p className="text-sm text-muted-foreground mb-6">Are you sure you want to delete this task? This action cannot be undone.</p>
+              <p className="text-sm text-muted-foreground mb-6">Are you sure you want to delete {tasksToDelete.length === 1 ? 'this task' : `these ${tasksToDelete.length} tasks`}? This action cannot be undone.</p>
               
               <div className="flex gap-3">
-                <button onClick={() => setTaskToDelete(null)} disabled={isPending} className="flex-1 py-2 rounded-xl text-sm font-semibold hover:bg-muted transition-colors border border-border disabled:opacity-50">
+                <button onClick={() => setTasksToDelete([])} disabled={isPending} className="flex-1 py-2 rounded-xl text-sm font-semibold hover:bg-muted transition-colors border border-border disabled:opacity-50">
                   Cancel
                 </button>
                 <button onClick={handleDelete} disabled={isPending} className="flex-1 bg-red-500 text-white py-2 rounded-xl text-sm font-semibold hover:bg-red-600 transition-colors shadow-md disabled:opacity-50 flex items-center justify-center gap-2">

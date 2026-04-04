@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AppearanceProvider } from "@/components/appearance-provider";
 import { LoadingProvider } from "@/lib/contexts/loading-context";
+import { SoundProvider } from "@/lib/contexts/sound-context";
+import { NotificationProvider } from "@/lib/contexts/notification-context";
 import { Toaster } from "sonner";
 
 const geistSans = Geist({
@@ -36,10 +39,16 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <LoadingProvider>
-            {children}
-            <Toaster position="bottom-right" richColors theme="system" />
-          </LoadingProvider>
+          <AppearanceProvider>
+            <LoadingProvider>
+              <SoundProvider>
+                <NotificationProvider>
+                  {children}
+                  <Toaster position="bottom-right" richColors theme="system" />
+                </NotificationProvider>
+              </SoundProvider>
+            </LoadingProvider>
+          </AppearanceProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -16,8 +16,8 @@ export default function StartTaskButton({ taskId }: { taskId: string }) {
       try {
         const result = await claimTask(taskId);
         if (result.success && result.data?.bypass_url) {
-          toast.success("Đã tạo liên kết! Đang chuyển hướng...");
-          window.open(result.data.bypass_url, "_blank");
+          toast.success("Đang chuyển hướng đến trang nhiệm vụ...");
+          window.location.href = result.data.bypass_url;
         } else {
           toast.error(result.error || "Không thể khởi tạo nhiệm vụ");
         }

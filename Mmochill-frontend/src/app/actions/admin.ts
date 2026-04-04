@@ -27,14 +27,14 @@ export async function getAdminStats() {
     }
 }
 
-export async function getAdminUsers(page = 1, limit = 10, search = "") {
+export async function getAdminUsers(page = 1, limit = 10, search = "", filter = "") {
     const cookieStore = await cookies();
     const token = cookieStore.get("user_token")?.value;
 
     if (!token) return { users: [], total: 0 };
 
     try {
-        const res = await fetch(`${BACKEND_URL}/admin/users?page=${page}&limit=${limit}&search=${search}`, {
+        const res = await fetch(`${BACKEND_URL}/admin/users?page=${page}&limit=${limit}&search=${search}&filter=${filter}`, {
             headers: { 
                 "Authorization": `Bearer ${token}`,
                 "X-Admin-Token": "mmochill-admin-2026"
@@ -169,14 +169,14 @@ export async function sendGlobalNotification(req: { title: string; message: stri
     }
 }
 
-export async function getSentNotifications() {
+export async function getSentNotifications(page = 1, limit = 10) {
     const cookieStore = await cookies();
     const token = cookieStore.get("user_token")?.value;
 
-    if (!token) return [];
+    if (!token) return { notifications: [], total: 0 };
 
     try {
-        const res = await fetch(`${BACKEND_URL}/admin/notifications`, {
+        const res = await fetch(`${BACKEND_URL}/admin/notifications?page=${page}&limit=${limit}`, {
             headers: { 
                 "Authorization": `Bearer ${token}`,
                 "X-Admin-Token": "mmochill-admin-2026"
@@ -184,13 +184,14 @@ export async function getSentNotifications() {
             cache: 'no-store'
         });
 
-        if (!res.ok) return [];
+        if (!res.ok) return { notifications: [], total: 0 };
         return await res.json();
     } catch (error) {
         console.error("Failed to fetch sent notifications:", error);
-        return [];
+        return { notifications: [], total: 0 };
     }
 }
+
 
 export async function deleteNotification(id?: string, groupId?: string) {
     const cookieStore = await cookies();
@@ -236,6 +237,77 @@ export async function bulkDeleteNotifications(req: { ids?: string[], group_ids?:
 
         return { success: res.ok };
     } catch (error) {
+        return { success: false };
+    }
+}
+
+export async function getAdminClaims(page = 1, limit = 20) {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("user_token")?.value;
+
+    if (!token) return { claims: [], total: 0 };
+
+    try {
+        const res = await fetch(`${BACKEND_URL}/admin/tasks/claims?page=${page}&limit=${limit}`, {
+            headers: { 
+                "Authorization": `Bearer ${token}`,
+                "X-Admin-Token": "mmochill-admin-2026"
+            },
+            cache: 'no-store'
+        });
+
+        if (!res.ok) return { claims: [], total: 0 };
+        return await res.json();
+    } catch (error) {
+        console.error("Failed to fetch admin claims:", error);
+        return { claims: [], total: 0 };
+    }
+}
+
+export async function getAdminAlerts(page = 1, limit = 20, category = "") {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("user_token")?.value;
+
+    if (!token) return { alerts: [], total: 0 };
+
+    try {
+        const url = `${BACKEND_URL}/admin/alerts?page=${page}&limit=${limit}${category ? `&category=${category}` : ""}`;
+        const res = await fetch(url, {
+            headers: { 
+                "Authorization": `Bearer ${token}`,
+                "X-Admin-Token": "mmochill-admin-2026"
+            },
+            cache: 'no-store'
+        });
+
+        if (!res.ok) return { alerts: [], total: 0 };
+        return await res.json();
+    } catch (error) {
+        console.error("Failed to fetch admin alerts:", error);
+        return { alerts: [], total: 0 };
+    }
+}
+
+export async function markAdminAlertsAsRead(ids?: string[]) {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("user_token")?.value;
+
+    if (!token) return { success: false };
+
+    try {
+        const res = await fetch(`${BACKEND_URL}/admin/alerts/mark-read`, {
+            method: "POST",
+            headers: { 
+                "Authorization": `Bearer ${token}`,
+                "X-Admin-Token": "mmochill-admin-2026",
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ ids })
+        });
+
+        return { success: res.ok };
+    } catch (error) {
+        console.error("Failed to mark admin alerts as read:", error);
         return { success: false };
     }
 }

@@ -112,6 +112,7 @@ export default function ProfilePage() {
     const res = await updateProfile(editForm.full_name, finalAvatarURL);
     if (res.success) {
       await loadProfile();
+      window.dispatchEvent(new Event("profileUpdated")); // Notify other components (Header)
       setIsEditModalOpen(false);
       setPreviewUrl(null);
       setSelectedFile(null);
@@ -216,7 +217,8 @@ export default function ProfilePage() {
             <div className="text-center md:text-left space-y-1">
               <div className="flex justify-center md:justify-start mb-2">
                 <RankBadge
-                  peakBalance={user.peak_balance || 0}
+                  peakBalance={Math.max(Number(user.balance || 0), Number(user.peak_balance || 0))}
+                  role={user.role}
                   className="scale-125 origin-left"
                 />
               </div>
@@ -285,7 +287,7 @@ export default function ProfilePage() {
                           Tên đầy đủ
                         </h3>
                         <div className="p-4 rounded-xl bg-slate-950/50 border border-white/5 text-sm text-slate-300 text-ellipsis overflow-hidden">
-                          {user.full_name}
+                          {user.full_name || "Chưa cập nhật"}
                         </div>
                       </div>
                       <div className="space-y-2">
@@ -293,7 +295,7 @@ export default function ProfilePage() {
                           Số dư cao nhất
                         </h3>
                         <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 text-sm text-primary font-bold">
-                          {user.peak_balance?.toLocaleString() || 0} đ
+                          {Math.max(Number(user.balance || 0), Number(user.peak_balance || 0)).toLocaleString()} đ
                         </div>
                       </div>
                     </div>

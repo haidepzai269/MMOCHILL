@@ -11,20 +11,28 @@ import {
   Bell,
   Landmark,
   MessageSquare,
+  Activity,
+  Zap,
+  Palette,
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ThemeProvider } from "@/components/theme-provider";
-import { adminLogout } from "@/app/actions/auth";
+import { adminLogout, getUserProfile } from "@/app/actions/auth";
+import { getAdminAlerts, markAdminAlertsAsRead } from "@/app/actions/admin";
+import RankBadge from "@/components/rank-badge";
+import { toast } from "sonner";
 
 const adminLinks = [
   { name: "Overview", href: "/admin", icon: LayoutDashboard },
   { name: "Task Management", href: "/admin/tasks", icon: CheckSquare },
   { name: "Users", href: "/admin/users", icon: Users },
   { name: "Support", href: "/admin/support", icon: MessageSquare },
+  { name: "Progress", href: "/admin/progress", icon: Activity },
   { name: "Notifications", href: "/admin/notifications", icon: Bell },
   { name: "Bank Management", href: "/admin/bank", icon: Landmark },
+  { name: "Appearance", href: "/admin/appearance", icon: Palette },
   { name: "Settings", href: "/admin/settings", icon: Settings },
 ];
 
@@ -34,7 +42,28 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [hasNewSupport, setHasNewSupport] = useState(false);
+  const [admin, setAdmin] = useState<any>(null);
+  const [adminAlerts, setAdminAlerts] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const fetchAdmin = async () => {
+      const data = await getUserProfile();
+      if (data && data.role === "admin") setAdmin(data);
+    };
+    fetchAdmin();
+
+    const fetchAlerts = async () => {
+      const res = await getAdminAlerts(1, 10);
+      if (res && res.alerts) {
+        setAdminAlerts(res.alerts);
+        setUnreadCount(res.unread_count || 0);
+      }
+    };
+    fetchAlerts();
+  }, []);
 
   const getCookie = (name: string) => {
     if (typeof document === "undefined") return undefined;
@@ -50,28 +79,84 @@ export default function AdminLayout({
     }
   }, [pathname]);
 
+  // Initial check for open tickets
   useEffect(() => {
-    // Use the existing notification SSE endpoint but listen for a custom event
+    const checkInitialSupport = async () => {
+      try {
+        const token = getCookie("user_token_local");
+        if (!token) return;
+
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080/api/v1"}/admin/support?status=open`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setHasNewSupport(true);
+        }
+      } catch (error) {
+        console.error("Error checking initial support:", error);
+      }
+    };
+
+    if (admin) {
+      checkInitialSupport();
+    }
+  }, [admin]);
+
+  useEffect(() => {
+    // Persistent SSE Connection for Sidebar
     const token = getCookie("user_token_local");
     if (!token) return;
 
     const eventSource = new EventSource(
-      `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080/api/v1"}/notifications/stream?token=${token}`,
+      `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080/api/v1"}/admin/stream?token=${token}`,
       { withCredentials: true },
     );
 
-    eventSource.onopen = () => console.log("SSE Connected for Sidebar");
-    eventSource.onerror = (e) => console.error("SSE Error for Sidebar", e);
+    eventSource.onopen = () => console.log("SSE Connected for Admin Layout");
+    eventSource.onerror = (e) => console.error("SSE Error for Admin Layout", e);
 
     eventSource.addEventListener("support_update", () => {
       console.log("Received support_update event");
+      // Use window.location directly to check current path
       if (!window.location.pathname.startsWith("/admin/support")) {
         setHasNewSupport(true);
       }
     });
 
-    return () => eventSource.close();
-  }, [pathname]);
+    eventSource.addEventListener("admin_notification", async () => {
+        console.log("Received admin_notification event");
+        // Refresh alerts
+        const res = await getAdminAlerts(1, 10);
+        if (res && res.alerts) {
+          setAdminAlerts(res.alerts);
+          setUnreadCount(res.unread_count || 0);
+          
+          // Play sound
+          const audio = new Audio("/sounds/notification.mp3");
+          audio.play().catch(e => console.log("Audio play failed:", e));
+          
+          // Show toast for latest alert
+          if (res.alerts.length > 0 && !res.alerts[0].is_read) {
+            toast.info(res.alerts[0].title, {
+              description: res.alerts[0].message,
+              action: {
+                label: "Xem",
+                onClick: () => router.push("/admin/notifications")
+              }
+            });
+          }
+        }
+      });
+
+    return () => {
+      console.log("Closing SSE Admin connection");
+      eventSource.close();
+    };
+  }, [router, admin]);
 
   // If we're on the login page, don't show the sidebar or header
   if (pathname === "/admin/login") {
@@ -156,10 +241,104 @@ export default function AdminLayout({
                 .toUpperCase() +
                 (pathname?.split("/").pop() || "Dashboard").slice(1)}
             </h2>
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium">Admin User</span>
-              <div className="w-8 h-8 rounded-full bg-red-500/20 border border-red-500/50 flex items-center justify-center text-red-500 font-bold text-xs">
-                AD
+            <div className="flex items-center gap-4">
+              {/* Admin Notifications Bell with Hover Dropdown */}
+              <div className="relative group/note p-1">
+                <button 
+                  onClick={() => router.push("/admin/notifications")}
+                  className="relative p-2.5 rounded-full hover:bg-muted transition-all text-foreground/80 group-hover/note:bg-primary/10 group-hover/note:text-primary"
+                >
+                  <Bell className="w-5 h-5 transition-transform group-active/note:scale-90" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-red-500 rounded-full border-2 border-background text-[10px] font-black text-white flex items-center justify-center shadow-lg shadow-red-500/20">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Hover Dropdown */}
+                <div className="absolute right-0 mt-2 w-80 bg-card border border-border rounded-2xl shadow-xl opacity-0 invisible group-hover/note:opacity-100 group-hover/note:visible transition-all duration-300 translate-y-2 group-hover/note:translate-y-0 z-50 overflow-hidden">
+                  <div className="p-4 border-b border-border bg-muted/30">
+                    <div className="flex items-center justify-between mb-1">
+                      <h4 className="font-bold text-sm">Thông báo Admin</h4>
+                      {adminAlerts.some(a => !a.is_read) && (
+                        <button 
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const res = await markAdminAlertsAsRead();
+                            if (res.success) {
+                              const updated = await getAdminAlerts(1, 10);
+                              if (updated && updated.alerts) setAdminAlerts(updated.alerts);
+                              toast.success("Đã đọc tất cả");
+                            }
+                          }}
+                          className="text-[10px] text-primary hover:underline font-bold"
+                        >
+                          Đọc tất cả
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="max-h-[400px] overflow-y-auto p-2 space-y-1 custom-scrollbar min-h-[100px]">
+                    {adminAlerts.length > 0 ? (
+                      adminAlerts.map((alert) => (
+                        <div 
+                          key={alert.id}
+                          onClick={() => {
+                            router.push("/admin/notifications");
+                          }}
+                          className={`p-3 rounded-xl transition-all cursor-pointer flex gap-3 group/item ${!alert.is_read ? 'bg-primary/[0.03] hover:bg-primary/[0.08]' : 'opacity-60 hover:bg-muted/50'}`}
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${alert.category === 'payment' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                            {alert.category === 'payment' ? <Landmark className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-bold truncate ${!alert.is_read ? 'text-foreground' : 'text-muted-foreground'}`}>
+                              {alert.title}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">
+                              {alert.message}
+                            </p>
+                          </div>
+                          {!alert.is_read && (
+                            <div className="w-2 h-2 rounded-full bg-primary mt-1 shadow-[0_0_8px_rgba(var(--primary),0.5)]" />
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="py-12 text-center text-muted-foreground">
+                        <Bell className="w-8 h-8 mx-auto opacity-20 mb-2" />
+                        <p className="text-xs">Không có thông báo mới</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-2 border-t border-border bg-muted/20">
+                    <button 
+                      onClick={() => router.push("/admin/notifications")}
+                      className="w-full py-2 text-[11px] font-bold text-primary hover:bg-primary/5 rounded-lg transition-colors block text-center"
+                    >
+                      Xem tất cả
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-bold leading-none">
+                  {admin?.full_name || admin?.username || "Admin User"}
+                </p>
+                <div className="flex justify-end mt-1">
+                  <RankBadge peakBalance={admin?.peak_balance || 0} role={admin?.role || "admin"} className="scale-90" />
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-red-500/10 border-2 border-red-500/20 overflow-hidden flex items-center justify-center text-red-500 font-bold">
+                {admin?.avatar_url ? (
+                  <img src={admin.avatar_url} alt="Admin" className="w-full h-full object-cover" />
+                ) : (
+                  (admin?.full_name || "AD").slice(0, 2).toUpperCase()
+                )}
               </div>
             </div>
           </header>

@@ -1,16 +1,34 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Award, ShieldCheck, Crown, Star, Gem } from "lucide-react";
+import { Award, ShieldCheck, Crown, Star, Gem, User } from "lucide-react";
 
 interface RankBadgeProps {
   peakBalance: number;
+  role?: string;
   showText?: boolean;
   className?: string;
 }
 
-export const getRankInfo = (balance: number) => {
-  if (balance >= 2000000) {
+export const getRankInfo = (balance: number | string, role?: string) => {
+  // Chuyển đổi sang số thực, hỗ trợ cả string hoặc number cực lớn
+  const numBalance = typeof balance === "string" ? parseFloat(balance.replace(/,/g, "")) : Number(balance);
+  const currentRole = role?.toLowerCase().trim();
+
+  if (currentRole === "admin") {
+    return {
+      name: "Admin",
+      color: "from-blue-600 via-indigo-500 to-purple-600",
+      icon: <ShieldCheck className="w-3 h-3 text-white" />,
+      textColor: "text-white",
+      bgOpacity: "bg-blue-500/20",
+      glow: "shadow-[0_0_15px_rgba(37,99,235,0.6)]",
+      next: null,
+      min: 0,
+    };
+  }
+
+  if (numBalance >= 2000000) {
     return {
       name: "VIP",
       color: "from-purple-600 via-pink-500 to-red-500",
@@ -22,7 +40,7 @@ export const getRankInfo = (balance: number) => {
       min: 2000000,
     };
   }
-  if (balance >= 1000000) {
+  if (numBalance >= 1000000) {
     return {
       name: "Gold",
       color: "from-yellow-400 to-yellow-600",
@@ -34,11 +52,11 @@ export const getRankInfo = (balance: number) => {
       min: 1000000,
     };
   }
-  if (balance >= 500000) {
+  if (numBalance >= 500000) {
     return {
       name: "Silver",
       color: "from-slate-300 to-slate-500",
-      icon: <ShieldCheck className="w-3 h-3 text-white" />,
+      icon: <Award className="w-3 h-3 text-white" />,
       textColor: "text-white",
       bgOpacity: "bg-slate-400/20",
       glow: "shadow-[0_0_8px_rgba(148,163,184,0.3)]",
@@ -46,11 +64,11 @@ export const getRankInfo = (balance: number) => {
       min: 500000,
     };
   }
-  if (balance >= 100000) {
+  if (numBalance >= 100000) {
     return {
       name: "Bronze",
       color: "from-orange-600 to-orange-800",
-      icon: <Award className="w-3 h-3 text-white" />,
+      icon: <Star className="w-3 h-3 text-white" />,
       textColor: "text-white",
       bgOpacity: "bg-orange-600/20",
       glow: "shadow-[0_0_8px_rgba(234,88,12,0.3)]",
@@ -61,7 +79,7 @@ export const getRankInfo = (balance: number) => {
   return {
     name: "Member",
     color: "from-gray-400 to-gray-600",
-    icon: <Star className="w-3 h-3 text-white" />,
+    icon: <User className="w-3 h-3 text-white" />,
     textColor: "text-white",
     bgOpacity: "bg-gray-500/10",
     glow: "",
@@ -72,10 +90,11 @@ export const getRankInfo = (balance: number) => {
 
 export default function RankBadge({
   peakBalance,
+  role,
   showText = true,
   className = "",
 }: RankBadgeProps) {
-  const rank = getRankInfo(peakBalance);
+  const rank = getRankInfo(peakBalance, role);
 
   return (
     <motion.div
@@ -111,11 +130,11 @@ export default function RankBadge({
         </span>
       )}
 
-      {/* Special effect for VIP */}
-      {rank.name === "VIP" && (
+      {/* Special effect for VIP & Admin */}
+      {(rank.name === "VIP" || rank.name === "Admin") && (
         <span className="absolute -top-1 -right-1 flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-pink-500"></span>
+          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${rank.name === "Admin" ? "bg-blue-400" : "bg-pink-400"} opacity-75`}></span>
+          <span className={`relative inline-flex rounded-full h-2 w-2 ${rank.name === "Admin" ? "bg-blue-500" : "bg-pink-500"}`}></span>
         </span>
       )}
     </motion.div>

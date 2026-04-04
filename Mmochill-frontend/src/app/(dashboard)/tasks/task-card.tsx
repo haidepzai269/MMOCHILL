@@ -6,16 +6,27 @@ import { useState } from "react";
 import { DatabaseTask } from "@/app/actions/tasks";
 import Link from "next/link";
 
-export default function TaskCard({ task, index }: { task: DatabaseTask, index: number }) {
+export default function TaskCard({ task, index, isJustCompleted = false }: { task: DatabaseTask, index: number, isJustCompleted?: boolean }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
     <motion.div
+      layout
       initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.05 }}
-      className={`group relative bg-card/60 backdrop-blur-md border border-white/5 rounded-[2rem] overflow-hidden transition-all duration-300 ${
+      animate={{ 
+        opacity: isJustCompleted ? 0.7 : 1, 
+        y: 0,
+        backgroundColor: isJustCompleted ? "rgba(34, 197, 94, 0.05)" : undefined,
+      }}
+      transition={{ 
+        duration: 0.4, 
+        delay: isJustCompleted ? 0 : index * 0.05,
+        layout: { type: "spring", bounce: 0.2, duration: 0.7 }
+      }}
+      className={`group relative bg-card/60 backdrop-blur-md border rounded-[2rem] overflow-hidden transition-all duration-300 ${
         isExpanded ? "ring-2 ring-primary/20 shadow-2xl bg-card/80" : "hover:border-primary/30 shadow-sm"
+      } ${
+        isJustCompleted ? "border-green-500/40 pointer-events-none" : "border-white/5"
       }`}
     >
       {/* Header Clickable Area */}
@@ -42,21 +53,34 @@ export default function TaskCard({ task, index }: { task: DatabaseTask, index: n
               <p className="text-[11px] text-muted-foreground flex items-center gap-1 font-medium">
                 <Clock className="w-3 h-3 opacity-50" /> {task.time_requirement}s
               </p>
+              {task.max_completions_today !== undefined && task.max_completions_today > 1 && (
+                <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full uppercase tracking-tighter border border-blue-500/20">
+                  {task.completions_today || 0}/{task.max_completions_today} Lượt
+                </span>
+              )}
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <p className="font-black text-lg text-emerald-500 leading-none">+{task.reward_amount.toLocaleString()}</p>
-            <p className="text-[9px] text-muted-foreground/70 uppercase font-bold tracking-widest mt-0.5">VND</p>
+            {isJustCompleted ? (
+              <p className="font-black text-[11px] text-green-500 uppercase tracking-widest mt-1">Hoàn thành</p>
+            ) : (
+              <>
+                <p className="font-black text-lg text-emerald-500 leading-none">+{task.reward_amount.toLocaleString()}</p>
+                <p className="text-[9px] text-muted-foreground/70 uppercase font-bold tracking-widest mt-0.5">VND</p>
+              </>
+            )}
           </div>
-          <motion.div
-            animate={{ rotate: isExpanded ? 180 : 0 }}
-            className="w-8 h-8 rounded-full bg-muted/50 flex items-center justify-center text-muted-foreground"
-          >
-            <ChevronDown className="w-4 h-4" />
-          </motion.div>
+          {!isJustCompleted && (
+            <motion.div
+              animate={{ rotate: isExpanded ? 180 : 0 }}
+              className="w-8 h-8 rounded-full bg-muted/50 flex items-center justify-center text-muted-foreground"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </motion.div>
+          )}
         </div>
       </div>
 

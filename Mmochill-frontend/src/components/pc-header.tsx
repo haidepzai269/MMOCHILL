@@ -11,94 +11,99 @@ import {
   CheckCircle,
   Info,
   AlertCircle,
-  Check,
-  CheckCircle2,
   Facebook,
   MessageCircle,
+  Loader2,
+  Zap,
+  ChevronRight,
+  LifeBuoy,
+  Trophy,
+  CheckCircle2,
+  Settings as SettingsIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { getUserProfile, userLogout } from "@/app/actions/auth";
+import { globalSearch } from "@/app/actions/search";
+import { AnimatePresence } from "framer-motion";
 import {
   getNotifications,
   markAsRead,
   markAllNotificationsAsRead,
 } from "@/app/actions/notifications";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import RankBadge from "./rank-badge";
+import RankBadge, { getRankInfo } from "./rank-badge";
 import { ZaloIcon } from "./icons/zalo-icon";
+import { FacebookIcon } from "./icons/facebook-icon";
+import { useAppearance } from "./appearance-provider";
+import { FestiveHeaderOverlay } from "./festive-effects/header-overlay";
+import { useNotifications } from "@/lib/contexts/notification-context";
 
 export default function PCHeader() {
   const { theme, setTheme } = useTheme();
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<any>(null);
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const { notifications, setNotifications, unreadCount, refreshNotifications } = useNotifications();
+
+  // Search states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<{tasks: any[], actions: any[]}>({tasks: [], actions: []});
+  const [isSearching, setIsSearching] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults({tasks: [], actions: []});
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      const data = await globalSearch(searchQuery);
+      setSearchResults(data);
+      setIsSearching(false);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     setMounted(true);
+    
+    const fetchProfile = async () => {
+      const data = await getUserProfile();
+      if (data) setUser(data);
+    };
+
     const initData = async () => {
-      const [profile, notes] = await Promise.all([
-        getUserProfile(),
-        getNotifications(),
-      ]);
-      if (profile) setUser(profile);
-      if (notes) setNotifications(notes);
+      const profileData = await getUserProfile();
+      if (profileData) setUser(profileData);
     };
     initData();
 
-    // SSE Real-time notifications
-    const token = document.cookie
-      .split("; ")
-      .find((row) => row.startsWith("user_token_local="))
-      ?.split("=")[1];
-    if (!token) return;
-
-    const eventSource = new EventSource(
-      `${process.env.NEXT_PUBLIC_BACKEND_URL}/notifications/stream?token=${token}`,
-    );
-    console.log(
-      "[SSE] Connecting to:",
-      `${process.env.NEXT_PUBLIC_BACKEND_URL}/notifications/stream`,
-    );
-
-    eventSource.onopen = () =>
-      console.log("[SSE] Connection established successfully");
-
-    eventSource.addEventListener("notifications", async (event) => {
-      console.log("[SSE] Received notifications event");
-      try {
-        const data = JSON.parse(event.data);
-        console.log("[SSE] Notifications data count:", data.length);
-        setNotifications(data);
-        // Also update profile/balance as it likely changed
-        const profile = await getUserProfile();
-        if (profile) setUser(profile);
-      } catch (err) {
-        console.error("[SSE] Failed to parse notifications", err);
-      }
-    });
-
-    eventSource.addEventListener("account_status", (e) => {
-      if (e.data === "banned") {
-        toast.error("Tài khoản của bạn đã bị khóa.");
-        // Clear cookies
-        document.cookie =
-          "user_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-        document.cookie =
-          "user_token_local=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-        window.location.href = "/banned";
-      }
-    });
-
-    eventSource.onerror = (err) => {
-      console.error("[SSE] Connection error/closed:", err);
-      eventSource.close();
+    const handleProfileUpdate = () => {
+      initData();
     };
 
+    window.addEventListener("profileUpdated", handleProfileUpdate);
+
     return () => {
-      eventSource.close();
+      window.removeEventListener("profileUpdated", handleProfileUpdate);
     };
   }, []);
 
@@ -124,7 +129,6 @@ export default function PCHeader() {
     }
   };
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
   const filteredNotes = notifications.filter(
     (n) => (n.category || "system") === activeTab,
   );
@@ -135,27 +139,122 @@ export default function PCHeader() {
     (n) => !n.is_read && n.category === "task",
   ).length;
 
+  const { effectiveEvent } = useAppearance();
+
   return (
-    <header className="hidden md:flex h-16 items-center justify-between px-8 bg-background/80 backdrop-blur-xl border-b border-border/50 sticky top-0 z-40">
-      <div className="relative w-96">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Tìm kiếm nhiệm vụ, lịch sử..."
-          className="w-full bg-muted/50 border border-border/50 rounded-full pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-sans"
-        />
+    <header className={`hidden md:flex h-16 items-center justify-between px-8 backdrop-blur-xl border-b border-border/50 sticky top-0 z-40 transition-all duration-500 ${effectiveEvent === 'victory_day' ? 'bg-[#da251d] text-white shadow-lg border-none' : 'bg-background/80'}`}>
+      <FestiveHeaderOverlay event={effectiveEvent} />
+      <div className="relative w-96" ref={searchRef}>
+        <div className="relative group">
+          <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${effectiveEvent === 'victory_day' ? 'text-white' : (isSearchFocused ? 'text-primary' : 'text-muted-foreground')}`} />
+          <input
+            type="text"
+            placeholder="Tìm kiếm nhiệm vụ, rút tiền, hỗ trợ..."
+            className={`w-full border rounded-full pl-10 pr-10 py-2.5 text-sm focus:outline-none transition-all font-sans ${effectiveEvent === 'victory_day' ? 'bg-white/20 border-white/30 text-white placeholder:text-white/60 focus:bg-white/30' : 'bg-muted/30 border-border/50 focus:ring-4 focus:ring-primary/10 focus:border-primary/30'}`}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setIsSearchFocused(true)}
+          />
+          {isSearching && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+            </div>
+          )}
+        </div>
+
+        {/* Floating Search Results */}
+        <AnimatePresence>
+          {isSearchFocused && searchQuery.trim() && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="absolute top-full left-0 right-0 mt-2 bg-card border border-border shadow-2xl rounded-2xl overflow-hidden z-50 flex flex-col max-h-[480px]"
+            >
+              <div className="p-2 overflow-y-auto custom-scrollbar">
+                {/* Actions Results */}
+                {searchResults?.actions?.length > 0 && (
+                  <div className="mb-4">
+                    <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-3 py-2">Hành động nhanh</h5>
+                    {searchResults.actions.map((action, idx) => (
+                      <Link 
+                        key={idx}
+                        href={action.url}
+                        onClick={() => setIsSearchFocused(false)}
+                        className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-muted transition-all group"
+                      >
+                         <div className="p-2 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+                            {action.icon === 'Wallet' && <Wallet className="w-3.5 h-3.5" />}
+                            {action.icon === 'Zap' && <Zap className="w-3.5 h-3.5" />}
+                            {action.icon === 'UserCog' && <User className="w-3.5 h-3.5" />}
+                            {action.icon === 'LifeBuoy' && <LifeBuoy className="w-3.5 h-3.5" />}
+                            {action.icon === 'Dizzy' && <Trophy className="w-3.5 h-3.5" />}
+                         </div>
+                         <span className="text-xs font-semibold">{action.title}</span>
+                         <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </Link>
+                    ))}
+                  </div>
+                )}
+
+                {/* Tasks Results */}
+                <div>
+                  <h5 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-3 py-2">Nhiệm vụ ({searchResults?.tasks?.length || 0})</h5>
+                  {searchResults?.tasks?.length > 0 ? (
+                    <div className="space-y-1">
+                      {searchResults.tasks.map((task) => (
+                        <Link 
+                          key={task.id}
+                          href={`/tasks/${task.id}`}
+                          onClick={() => setIsSearchFocused(false)}
+                          className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-all border border-transparent hover:border-border/50 group"
+                        >
+                          <div className="w-9 h-9 rounded-lg bg-background flex items-center justify-center text-lg shrink-0 border border-border/50">
+                            {task.provider === 'traffic68' ? '🎁' : '⚡'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h6 className="font-bold text-xs truncate group-hover:text-primary transition-colors">{task.title}</h6>
+                            <p className="text-[9px] text-muted-foreground truncate">{task.provider}</p>
+                          </div>
+                          <div className="text-right">
+                             <span className="text-primary font-black text-[11px]">+{task.reward.toLocaleString()}đ</span>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    !isSearching && (
+                      <div className="py-8 text-center">
+                        <p className="text-[11px] text-muted-foreground italic">Không tìm thấy kết quả phù hợp</p>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+              <div className="p-2 border-t border-border bg-muted/10">
+                <Link 
+                  href="/tasks"
+                  onClick={() => setIsSearchFocused(false)}
+                  className="w-full py-2.5 text-[11px] font-bold text-primary hover:bg-primary/10 rounded-xl transition-colors block text-center"
+                >
+                  Xem tất cả nhiệm vụ
+                </Link>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="flex items-center gap-4">
         {/* Notifications Dropdown */}
         <div className="relative group/note p-1">
-          <button className="relative p-2.5 rounded-full hover:bg-muted transition-all text-foreground/80 group-hover/note:bg-primary/10 group-hover/note:text-primary">
+          <button className={`relative p-2.5 rounded-full transition-all flex items-center justify-center ${effectiveEvent === 'victory_day' ? 'hover:bg-white/20 text-white' : 'hover:bg-muted text-foreground/80 group-hover/note:bg-primary/10 group-hover/note:text-primary'}`}>
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && (
               <motion.span
                 initial={{ scale: 0.5, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-gradient-to-tr from-red-600 to-rose-500 border-2 border-background text-[9px] font-black text-white flex items-center justify-center shadow-lg shadow-rose-500/20"
+                className={`absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full border-2 text-[9px] font-black flex items-center justify-center shadow-lg ${effectiveEvent === 'victory_day' ? 'bg-[#fcd34d] text-[#da251d] border-[#da251d]' : 'bg-gradient-to-tr from-red-600 to-rose-500 border-background text-white shadow-rose-500/20'}`}
               >
                 {unreadCount > 9 ? "9+" : unreadCount}
               </motion.span>
@@ -167,6 +266,12 @@ export default function PCHeader() {
             <div className="p-4 border-b border-border bg-muted/30">
               <div className="flex items-center justify-between mb-3 gap-4">
                 <div className="flex items-center gap-2">
+                <RankBadge 
+                  peakBalance={Math.max(Number(user?.balance || 0), Number(user?.peak_balance || 0))} 
+                  role={user?.role} 
+                  showText={false} 
+                  className="scale-90" 
+                />
                   <h4 className="font-bold text-sm">Thông báo</h4>
                   {unreadCount > 0 && (
                     <span className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-md font-black ring-1 ring-primary/20 tracking-tighter">
@@ -217,7 +322,10 @@ export default function PCHeader() {
                 filteredNotes.map((note) => (
                   <div
                     key={note.id}
-                    onClick={() => !note.is_read && handleMarkAsRead(note.id)}
+                    onClick={() => {
+                        if (!note.is_read) handleMarkAsRead(note.id);
+                        router.push(`/notifications/${note.id}`);
+                    }}
                     className={`p-3 rounded-xl transition-colors cursor-pointer flex gap-3 ${note.is_read ? "opacity-60 hover:bg-muted/50" : "bg-primary/5 hover:bg-primary/10"}`}
                   >
                     <div
@@ -272,9 +380,12 @@ export default function PCHeader() {
             </div>
             {filteredNotes.length > 0 && (
               <div className="p-2 border-t border-border bg-muted/20">
-                <button className="w-full py-2 text-[11px] font-bold text-primary hover:bg-primary/5 rounded-lg transition-colors">
+                <Link 
+                    href="/notifications"
+                    className="w-full py-2 text-[11px] font-bold text-primary hover:bg-primary/5 rounded-lg transition-colors block text-center"
+                >
                   Xem tất cả
-                </button>
+                </Link>
               </div>
             )}
           </div>
@@ -284,25 +395,25 @@ export default function PCHeader() {
           <Link
             href="https://m.me/quang.vu.uc.579118"
             target="_blank"
-            className="p-2.5 rounded-full bg-blue-500/10 text-blue-600 hover:bg-blue-600 hover:text-white transition-all duration-300 shadow-[0_0_15px_rgba(37,99,235,0.1)] hover:shadow-[0_0_20px_rgba(37,99,235,0.4)] hover:scale-110 active:scale-95 flex items-center justify-center border border-blue-500/20"
+            className="w-9 h-9 rounded-full bg-[#1877F2] hover:scale-110 active:scale-95 transition-all flex items-center justify-center border border-blue-500/20 overflow-hidden"
             title="Facebook Messenger"
           >
-            <Facebook className="w-4 h-4" />
+            <FacebookIcon className="w-full h-full" />
           </Link>
           <Link
             href="https://zalo.me/0399109399"
             target="_blank"
-            className="p-2.5 rounded-full bg-blue-400/10 text-blue-500 hover:bg-blue-500 hover:text-white transition-all duration-300 shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:scale-110 active:scale-95 flex items-center justify-center border border-blue-400/20"
+            className="w-9 h-9 rounded-full bg-[#0068FF] hover:scale-110 active:scale-95 transition-all flex items-center justify-center border border-blue-400/20 overflow-hidden"
             title="Zalo"
           >
-            <ZaloIcon className="w-4 h-4" />
+            <ZaloIcon className="w-full h-full" />
           </Link>
         </div>
 
         {mounted && (
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="p-2.5 rounded-full hover:bg-muted transition-colors text-foreground/80"
+            className={`p-2.5 rounded-full transition-colors ${effectiveEvent === 'victory_day' ? 'hover:bg-white/10 text-white' : 'hover:bg-muted text-foreground/80'}`}
           >
             {theme === "dark" ? (
               <Sun className="w-5 h-5" />
@@ -318,14 +429,17 @@ export default function PCHeader() {
         <div className="relative group p-1">
           <div className="flex items-center gap-3 cursor-pointer group-hover:opacity-80 transition-all">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-bold leading-none">
+              <p className={`text-sm font-bold leading-none ${effectiveEvent === 'victory_day' ? 'text-white' : ''}`}>
                 {user?.full_name || user?.username || "Thành viên"}
               </p>
               <div className="flex items-center justify-end gap-1.5 mt-1">
-                <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-mono font-bold">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${effectiveEvent === 'victory_day' ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'}`}>
                   ID: {user?.display_id || "-------"}
                 </span>
-                <RankBadge peakBalance={user?.peak_balance || 0} />
+                <RankBadge 
+                  peakBalance={Math.max(Number(user?.balance || 0), Number(user?.peak_balance || 0))} 
+                  role={user?.role} 
+                />
               </div>
             </div>
             <div className="w-10 h-10 rounded-full bg-primary/10 border-2 border-primary/20 overflow-hidden relative transition-transform group-hover:scale-105 shadow-inner flex items-center justify-center">
@@ -360,6 +474,13 @@ export default function PCHeader() {
               >
                 <User className="w-4 h-4 text-muted-foreground group-hover/item:text-primary" />
                 Tài khoản
+              </Link>
+              <Link
+                href="/settings"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl hover:bg-primary/10 hover:text-primary transition-colors group/item"
+              >
+                <SettingsIcon className="w-4 h-4 text-muted-foreground group-hover/item:text-primary" />
+                Cài đặt
               </Link>
               <Link
                 href="/tasks"

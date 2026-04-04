@@ -15,6 +15,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
+import Loading from "@/components/loading";
 
 interface Ticket {
   id: string;
@@ -295,7 +296,7 @@ export default function SupportPage() {
 
           {loading ? (
             <div className="flex-1 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <Loading isLoading={loading} />
             </div>
           ) : tickets.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8 opacity-60">

@@ -16,6 +16,9 @@ export interface DatabaseTask {
   status: TaskStatus;
   time_requirement: number;
   is_completed: boolean;
+  provider: string;
+  completions_today?: number;
+  max_completions_today?: number;
 }
 
 export async function getActiveTasks(): Promise<DatabaseTask[]> {
@@ -42,7 +45,8 @@ export async function getActiveTasks(): Promise<DatabaseTask[]> {
             reward_amount: t.reward,
             target_url: t.original_url,
             time_requirement: t.min_time_seconds,
-            status: t.is_active ? "active" : "inactive"
+            status: t.is_active ? "active" : "inactive",
+            provider: t.provider || "taplayma"
         }));
     } catch (error) {
         console.error("Failed to fetch active tasks:", error);
@@ -74,7 +78,8 @@ export async function getTaskById(id: string): Promise<DatabaseTask | null> {
                     target_url: "",
                     status: "inactive",
                     time_requirement: 0,
-                    is_completed: true
+                    is_completed: true,
+                    provider: "unknown"
                 };
             }
         }
@@ -91,7 +96,8 @@ export async function getTaskById(id: string): Promise<DatabaseTask | null> {
             target_url: task.original_url,
             time_requirement: task.min_time_seconds,
             status: task.is_active ? "active" : "inactive",
-            is_completed: false
+            is_completed: false,
+            provider: task.provider || "taplayma"
         };
     } catch (error) {
         console.error("Failed to fetch task by id:", error);
@@ -121,7 +127,8 @@ export async function getTasks(): Promise<DatabaseTask[]> {
             reward_amount: t.reward,
             target_url: t.original_url,
             time_requirement: t.min_time_seconds,
-            status: t.is_active ? "active" : "inactive"
+            status: t.is_active ? "active" : "inactive",
+            provider: t.provider || "taplayma"
         }));
     } catch (error) {
         console.error("Failed to fetch all tasks:", error);
@@ -147,7 +154,7 @@ export async function addTask(formData: FormData) {
         original_url: formData.get("target_url") as string,
         min_time_seconds: parseInt(formData.get("time_requirement") as string),
         type: formData.get("type") as string || "surf",
-        provider: "manual",
+        provider: formData.get("provider") as string || "taplayma",
         max_completions: -1,
         is_active: formData.get("status") === "active"
     };
@@ -186,7 +193,7 @@ export async function updateTask(id: string, formData: FormData) {
         original_url: formData.get("target_url") as string,
         min_time_seconds: parseInt(formData.get("time_requirement") as string),
         type: formData.get("type") as string || "surf",
-        provider: "manual",
+        provider: formData.get("provider") as string || "taplayma",
         max_completions: -1,
         is_active: formData.get("status") === "active"
     };

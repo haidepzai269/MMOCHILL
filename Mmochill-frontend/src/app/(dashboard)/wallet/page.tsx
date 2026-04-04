@@ -16,6 +16,7 @@ import { getUserProfile } from "@/app/actions/auth";
 import { requestWithdrawal } from "@/app/actions/wallet";
 import { toast } from "sonner";
 import RankBadge, { getRankInfo } from "@/components/rank-badge";
+import Loading from "@/components/loading";
 
 export default function WalletPage() {
   const [user, setUser] = useState<any>(null);
@@ -112,7 +113,7 @@ export default function WalletPage() {
     });
   };
 
-  if (loading) return <div className="p-8 text-center">Loading wallet...</div>;
+  if (loading) return <Loading isLoading={loading} />;
 
   return (
     <div className="max-w-2xl mx-auto py-6 flex flex-col gap-8">
@@ -153,19 +154,20 @@ export default function WalletPage() {
                 </div>
                 <RankBadge
                   peakBalance={user?.peak_balance || 0}
+                  role={user?.role}
                   className="scale-110"
                 />
               </div>
             </div>
 
             {/* Rank Progress Bar */}
-            {getRankInfo(user?.peak_balance || 0).next && (
+            {getRankInfo(user?.peak_balance || 0, user?.role).next && (
               <div className="space-y-2 mt-2">
                 <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider">
                   <span className="text-white/40">
                     Tiến trình lên{" "}
                     {
-                      getRankInfo(getRankInfo(user?.peak_balance || 0).next!)
+                      getRankInfo(getRankInfo(user?.peak_balance || 0, user?.role).next!)
                         .name
                     }
                   </span>
@@ -174,9 +176,9 @@ export default function WalletPage() {
                       100,
                       Math.floor(
                         (((user?.peak_balance || 0) -
-                          getRankInfo(user?.peak_balance || 0).min) /
-                          (getRankInfo(user?.peak_balance || 0).next! -
-                            getRankInfo(user?.peak_balance || 0).min)) *
+                          getRankInfo(user?.peak_balance || 0, user?.role).min) /
+                          (getRankInfo(user?.peak_balance || 0, user?.role).next! -
+                            getRankInfo(user?.peak_balance || 0, user?.role).min)) *
                           100,
                       ),
                     )}
@@ -187,15 +189,15 @@ export default function WalletPage() {
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{
-                      width: `${Math.min(100, Math.floor((((user?.peak_balance || 0) - getRankInfo(user?.peak_balance || 0).min) / (getRankInfo(user?.peak_balance || 0).next! - getRankInfo(user?.peak_balance || 0).min)) * 100))}%`,
+                      width: `${Math.min(100, Math.floor((((user?.peak_balance || 0) - getRankInfo(user?.peak_balance || 0, user?.role).min) / (getRankInfo(user?.peak_balance || 0, user?.role).next! - getRankInfo(user?.peak_balance || 0, user?.role).min)) * 100))}%`,
                     }}
-                    className={`h-full bg-gradient-to-r ${getRankInfo(getRankInfo(user?.peak_balance || 0).next!).color}`}
+                    className={`h-full bg-gradient-to-r ${getRankInfo(getRankInfo(user?.peak_balance || 0, user?.role).next!).color}`}
                   />
                 </div>
                 <p className="text-[9px] text-white/30 italic text-center">
                   Cần thêm{" "}
                   {(
-                    getRankInfo(user?.peak_balance || 0).next! -
+                    getRankInfo(user?.peak_balance || 0, user?.role).next! -
                     (user?.peak_balance || 0)
                   ).toLocaleString()}
                   đ số dư cao nhất để thăng hạng

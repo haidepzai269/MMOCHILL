@@ -1,6 +1,6 @@
 "use client";
 
-import { Home, CheckSquare, Wallet, User } from "lucide-react";
+import { Home, CheckSquare, Wallet, User, Gift } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 const navItems = [
   { name: "Home", href: "/", icon: Home },
   { name: "Tasks", href: "/tasks", icon: CheckSquare },
+  { name: "Bonus", href: "/bonus/daily-checkin", icon: Gift },
   { name: "Wallet", href: "/wallet", icon: Wallet },
   { name: "Profile", href: "/profile", icon: User },
 ];
