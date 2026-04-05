@@ -8,6 +8,7 @@ import { useLoading } from "@/lib/contexts/loading-context";
 import { useNotifications } from "@/lib/contexts/notification-context";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { AnimatePresence } from "framer-motion";
+import { CashFlowChart } from "./cash-flow-chart";
 
 function TasksContent() {
   const { showLoading, hideLoading } = useLoading();
@@ -94,17 +95,7 @@ function TasksContent() {
 
   return (
     <>
-      <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
-         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mt-10 -mr-10" />
-         <div className="relative z-10">
-            <h1 className="text-2xl font-bold mb-2 flex items-center gap-2">
-              <CheckSquare className="w-6 h-6" /> Task Center
-            </h1>
-            <p className="text-indigo-50 text-sm max-w-sm">
-              Hoàn thành các nhiệm vụ bên dưới để nhận phần thưởng. Click vào nhiệm vụ để nhận hướng dẫn.
-            </p>
-         </div>
-      </div>
+      <CashFlowChart />
 
       <div className="grid grid-cols-1 gap-4 max-w-3xl mx-auto w-full pb-10">
         {activeTasks.length === 0 ? (

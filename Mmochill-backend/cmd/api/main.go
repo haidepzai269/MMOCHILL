@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
+	// "net/http"
 	"os"
 	"time"
 
@@ -48,11 +48,11 @@ func main() {
 	go ws.SupportHub.Run()
 	ctx := context.Background()
 	go services.StartLeaderboardCron(ctx)
-	go services.StartNewsCron(ctx)
+	// go services.StartNewsCron(ctx)
 	
 	// Khởi tạo danh sách sách kinh điển
-	bookService := &services.BookService{}
-	bookService.InitializeBooks(ctx)
+	// bookService := &services.BookService{}
+	// bookService.InitializeBooks(ctx)
 
 	r := gin.Default()
 
@@ -145,6 +145,12 @@ func main() {
 			notifications.PATCH("/read-all", handlers.MarkNotificationsAllRead)
 		}
 
+		// Wallet (cần JWT)
+		wallet := v1.Group("/wallet", middleware.AuthRequired())
+		{
+			wallet.GET("/transactions", handlers.GetMyTransactions)
+		}
+
 		// Support (cần JWT)
 		support := v1.Group("/support", middleware.AuthRequired())
 		{
@@ -158,6 +164,7 @@ func main() {
 		v1.GET("/search", middleware.AuthRequired(), handlers.GlobalSearch)
 		v1.GET("/leaderboard/stream", middleware.AuthRequired(), handlers.StreamLeaderboard)
 
+		/*
 		// Community (Cần VIP hoặc Admin)
 		community := v1.Group("/community", middleware.AuthRequired())
 		{
@@ -191,6 +198,7 @@ func main() {
 			community.GET("/comments", communityHandler.GetComments)
 			community.POST("/comments", communityHandler.CreateComment)
 		}
+		*/
 
 
 		// Admin (cần JWT + role=admin)
@@ -205,6 +213,7 @@ func main() {
 			admin.DELETE("/notifications", handlers.AdminDeleteNotification)
 			admin.POST("/notifications/bulk-delete", handlers.AdminBulkDeleteNotification)
 			admin.GET("/users", handlers.GetUsers)
+			admin.GET("/users/:id/transactions", handlers.GetAdminUserTransactions)
 			admin.PUT("/users/:id/ban", handlers.BanUser)
 			admin.GET("/withdrawals", handlers.GetAdminWithdrawals)
 			admin.PUT("/withdrawals/:id/approve", handlers.ApproveWithdrawal)
@@ -227,10 +236,12 @@ func main() {
 			// Admin Appearance
 			admin.PUT("/appearance", handlers.UpdateAppearance)
 
+			/*
 			// Admin Community
 			communityHandler := handlers.NewCommunityHandler()
 			admin.POST("/community/comments/bot", communityHandler.AdminCreateBotComment)
 			admin.DELETE("/community/comments/:id", communityHandler.AdminDeleteComment)
+			*/
 		}
 
 	}

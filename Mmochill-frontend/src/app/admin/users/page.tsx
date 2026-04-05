@@ -1,6 +1,6 @@
 "use client";
 
-import { Users as UsersIcon, Search, Filter, MoreHorizontal, ShieldOff, ShieldCheck, Loader2, Trophy, Mail, Calendar, Wallet, User as UserIcon, X, CheckCircle, ExternalLink, Zap } from "lucide-react";
+import { Users as UsersIcon, Search, Filter, MoreHorizontal, ShieldOff, ShieldCheck, Loader2, Trophy, Mail, Calendar, Wallet, User as UserIcon, X, CheckCircle, ExternalLink, Zap, ArrowUpRight } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 import { getAdminUsers, banUser } from "@/app/actions/admin";
 import { toast } from "sonner";
@@ -15,7 +15,9 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("");
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [historyUser, setHistoryUser] = useState<any>(null);
   const [isPending, startTransition] = useTransition();
+  const { AdminUserHistory } = require('./admin-user-history');
 
   const fetchUsers = async () => {
     showLoading();
@@ -76,8 +78,26 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {/* Filters & Search Toolbar */}
-      <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center bg-card/50 backdrop-blur-md border border-border/50 p-4 rounded-[2rem] shadow-sm">
+      <AnimatePresence mode="wait">
+        {historyUser ? (
+           <motion.div
+              key="history-view"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+           >
+              <AdminUserHistory user={historyUser} onBack={() => setHistoryUser(null)} />
+           </motion.div>
+        ) : (
+           <motion.div
+              key="table-view"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col gap-6"
+           >
+              {/* Filters & Search Toolbar */}
+              <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center bg-card/50 backdrop-blur-md border border-border/50 p-4 rounded-[2rem] shadow-sm">
         <div className="relative flex-1 group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
           <input 
@@ -124,7 +144,14 @@ export default function AdminUsersPage() {
                 {users.map((user) => (
                   <tr 
                     key={user.id} 
-                    onClick={() => setSelectedUser(user)}
+                    onClick={(e) => { 
+                      const isBtn = (e.target as Element).closest('.action-btn');
+                      if (isBtn) {
+                         setHistoryUser(user);
+                      } else {
+                         setSelectedUser(user);
+                      }
+                    }}
                     className="hover:bg-primary/[0.02] transition-all cursor-pointer group"
                   >
                     <td className="px-8 py-5">
@@ -160,10 +187,17 @@ export default function AdminUsersPage() {
                         </div>
                     </td>
                     <td className="px-6 py-5 text-right">
-                      <span className={`inline-flex items-center px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border ${user.status === 'active' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 'bg-red-500/10 text-red-600 border-red-500/20'}`}>
-                        {user.status === 'active' && <CheckCircle className="w-3 h-3 mr-1.5" />}
-                        {user.status}
-                      </span>
+                      <div className="flex items-center justify-end gap-3">
+                         <span className={`inline-flex items-center px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border ${user.status === 'active' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 'bg-red-500/10 text-red-600 border-red-500/20'}`}>
+                           {user.status === 'active' && <CheckCircle className="w-3 h-3 mr-1.5" />}
+                           {user.status}
+                         </span>
+                         <div 
+                            className="action-btn flex items-center justify-center p-2 rounded-xl bg-background border border-border group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-colors cursor-pointer z-10"
+                         >
+                            <ExternalLink className="w-4 h-4 pointer-events-none" />
+                         </div>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -192,6 +226,9 @@ export default function AdminUsersPage() {
            </button>
         </div>
       </div>
+      </motion.div>
+      )}
+      </AnimatePresence>
 
       {/* User Detail Modal */}
       <AnimatePresence>
@@ -238,17 +275,23 @@ export default function AdminUsersPage() {
                                 </div>
                                 <div className="mb-14">
                                     <h2 className="text-3xl font-black tracking-tighter leading-none mb-2">{selectedUser.username || selectedUser.full_name}</h2>
-                                    <p className="text-white/60 text-sm font-medium flex items-center gap-2">
-                                        <Mail className="w-3.5 h-3.5" />
-                                        {selectedUser.email}
-                                    </p>
+                                    <div className="flex items-center gap-3 mt-3 flex-wrap">
+                                        <p className="flex items-center gap-1.5 bg-black/20 px-3 py-1.5 rounded-xl border border-white/10 text-white/80 text-xs font-medium">
+                                            <Mail className="w-3.5 h-3.5" />
+                                            {selectedUser.email}
+                                        </p>
+                                        <p className="flex items-center gap-1.5 bg-black/20 px-3 py-1.5 rounded-xl border border-white/10 text-white text-xs font-black">
+                                            <Wallet className="w-3.5 h-3.5" />
+                                            Số dư: {selectedUser.balance?.toLocaleString() || 0}đ
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     {/* Modal Content */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-8 mt-14 space-y-8">
+                    <div className="flex-1 overflow-x-hidden overflow-y-auto custom-scrollbar relative mt-14 p-8 pb-10 space-y-8">
                         {/* Status Bar */}
                         <div className="flex items-center justify-between p-6 bg-muted/30 rounded-3xl border border-border/50">
                             <div className="flex items-center gap-4">
@@ -298,8 +341,25 @@ export default function AdminUsersPage() {
                                 <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest mb-1">Ngày tham gia</p>
                                 <p className="text-base font-black text-foreground">{new Date(selectedUser.created_at).toLocaleDateString('vi-VN')}</p>
                             </div>
+                            <div 
+                                onClick={() => { setSelectedUser(null); setHistoryUser(selectedUser); }}
+                                className="col-span-2 p-5 bg-background shadow-inner border border-border rounded-3xl group/btn cursor-pointer flex items-center justify-between hover:bg-primary/5 transition-colors"
+                            >
+                                <div className="flex items-center gap-4">
+                                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center text-white font-black shadow-lg shadow-primary/20">
+                                         $
+                                     </div>
+                                     <div>
+                                        <h3 className="text-base font-black text-foreground group-hover/btn:text-primary transition-colors">Xem Lịch Sử Dòng Tiền</h3>
+                                        <p className="text-xs text-muted-foreground font-medium">Bao gồm lịch sử làm nhiệm vụ, cộng điểm, trừ tiền rút...</p>
+                                     </div>
+                                </div>
+                                <div className="p-3 bg-card rounded-xl border border-border group-hover/btn:border-primary/30 group-hover/btn:translate-x-1 transition-all">
+                                     <ArrowUpRight className="w-5 h-5 text-muted-foreground group-hover/btn:text-primary transition-colors" />
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                   </div>
 
                     {/* Modal Footer */}
                     <div className="p-6 border-t border-border bg-muted/10 shrink-0">

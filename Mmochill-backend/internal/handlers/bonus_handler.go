@@ -1,15 +1,27 @@
 package handlers
 
 import (
+	"context"
+	"log"
 	"math/rand"
 	"net/http"
 	"time"
-	"log"
 
+	"github.com/QuangVuDuc006/mmochill-backend/internal/database"
 	"github.com/QuangVuDuc006/mmochill-backend/internal/models"
 	"github.com/QuangVuDuc006/mmochill-backend/internal/repository"
 	"github.com/gin-gonic/gin"
 )
+
+func getDBTime(ctx context.Context) time.Time {
+	var dbTime time.Time
+	err := database.Pool.QueryRow(ctx, "SELECT CURRENT_TIMESTAMP").Scan(&dbTime)
+	if err != nil {
+		log.Printf("[WARNING] getDBTime failed, fallback to server clock: %v", err)
+		return time.Now()
+	}
+	return dbTime
+}
 
 func GetCheckInStatus(c *gin.Context) {
 	userIDInterface, exists := c.Get("user_id")
@@ -34,28 +46,27 @@ func GetCheckInStatus(c *gin.Context) {
 		return
 	}
 
-	log.Printf("[DEBUG] User %s: Streak=%d, LastCheckin=%v", userID, ub.CheckinStreak, ub.LastCheckinAt)
+	location := time.FixedZone("ICT", 7*3600)
+	now := getDBTime(ctx).In(location)
 
-	now := time.Now()
 	canCheckIn := true
 	if ub.LastCheckinAt != nil {
-		if ub.LastCheckinAt.Year() == now.Year() && ub.LastCheckinAt.YearDay() == now.YearDay() {
+		lastLocal := ub.LastCheckinAt.In(location)
+		if lastLocal.Year() == now.Year() && lastLocal.YearDay() == now.YearDay() {
 			canCheckIn = false
 		}
 	}
 
 	canSpin := true
 	if ub.LastSpinAt != nil {
-		if ub.LastSpinAt.Year() == now.Year() && ub.LastSpinAt.YearDay() == now.YearDay() {
+		lastLocal := ub.LastSpinAt.In(location)
+		if lastLocal.Year() == now.Year() && lastLocal.YearDay() == now.YearDay() {
 			canSpin = false
 		}
 	}
 
 	// Xác định mức thưởng tiếp theo
 	streak := ub.CheckinStreak
-	// Nếu hôm nay đã điểm danh, hoặc chuỗi bị đứt (cần check logic này kỹ hơn ở repo)
-	// Để đơn giản cho frontend, ta trả về streak hiện tại.
-	
 	nextDay := (streak % 7) + 1
 	var nextReward int64
 	switch nextDay {
@@ -96,9 +107,12 @@ func CheckIn(c *gin.Context) {
 		return
 	}
 
-	now := time.Now()
+	location := time.FixedZone("ICT", 7*3600)
+	now := getDBTime(ctx).In(location)
+
 	if ub.LastCheckinAt != nil {
-		if ub.LastCheckinAt.Year() == now.Year() && ub.LastCheckinAt.YearDay() == now.YearDay() {
+		lastLocal := ub.LastCheckinAt.In(location)
+		if lastLocal.Year() == now.Year() && lastLocal.YearDay() == now.YearDay() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Bạn đã điểm danh hôm nay rồi"})
 			return
 		}
@@ -137,26 +151,24 @@ func LuckySpin(c *gin.Context) {
 		return
 	}
 
-	now := time.Now()
+	location := time.FixedZone("ICT", 7*3600)
+	now := getDBTime(ctx).In(location)
+
 	if ub.LastSpinAt != nil {
-		if ub.LastSpinAt.Year() == now.Year() && ub.LastSpinAt.YearDay() == now.YearDay() {
+		lastLocal := ub.LastSpinAt.In(location)
+		if lastLocal.Year() == now.Year() && lastLocal.YearDay() == now.YearDay() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Bạn đã quay thưởng hôm nay rồi"})
 			return
 		}
 	}
 
-	// Logic Random có trọng số
-	// Tỉ lệ (x 100.000 để xử lý số thực)
-	// 80 VND: 60% (60,000)
-	// 100 VND: 30% (30,000)
-	// 200 VND: 8% (8,000)
-	// Chúc may mắn: 1.99899% (1,999)
-	// 10,000 VND: 0.001% (1)
-	// 20,000 VND: 0.00001% (0.01 -> bỏ qua, lấy 1)
-	
-	// Để chính xác hơn với yêu cầu:
-	// 100, 80, 200, 10000, 20000, May mắn
-	
+	// Tỉ lệ theo yêu cầu:
+	// 80: 90%
+	// 100: 7%
+	// 200: 3%
+	// 10,000 VND: 0.000001%
+	// 20,000 VND: 0%
+
 	type Prize struct {
 		Reward int64
 		Label  string
@@ -165,12 +177,12 @@ func LuckySpin(c *gin.Context) {
 	}
 
 	prizes := []Prize{
-		{100, "100 VND", 30.0, 0},
-		{80, "80 VND", 60.0, 1},
-		{200, "200 VND", 8.0, 2},
-		{10000, "10,000 VND", 0.001, 3},
-		{20000, "20,000 VND", 0.00001, 4},
-		{0, "Chúc may mắn lần sau", 1.99899, 5},
+		{100, "100 VND", 7.0, 0},
+		{80, "80 VND", 89.999999, 1}, // Tỷ lệ xấp xỉ 90%
+		{200, "200 VND", 3.0, 2},
+		{10000, "10,000 VND", 0.000001, 3},
+		{20000, "20,000 VND", 0.0, 4},
+		{0, "Chúc may mắn", 0.0, 5},
 	}
 
 	totalWeight := 100.0
@@ -185,9 +197,9 @@ func LuckySpin(c *gin.Context) {
 			break
 		}
 	}
-	// Fallback nếu có sai số float
+	// Fallback
 	if selected.Label == "" {
-		selected = prizes[len(prizes)-1]
+		selected = prizes[1] // Mặc định 80 VND
 	}
 
 	err = repository.PerformLuckySpin(ctx, userID.(string), selected.Reward, selected.Label)

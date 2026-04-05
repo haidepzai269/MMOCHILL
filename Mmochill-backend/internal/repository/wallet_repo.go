@@ -69,3 +69,40 @@ func AddWalletBalance(ctx context.Context, tx database.TxOrPool, userID string, 
 func AddReward(ctx context.Context, tx database.TxOrPool, userID string, amount int64, refID string, note string) error {
 	return AddWalletBalance(ctx, tx, userID, amount, models.TxTaskReward, refID, note)
 }
+
+// GetTransactionsByWalletID lấy lịch sử giao dịch của ví, hỗ trợ phân trang
+func GetTransactionsByWalletID(ctx context.Context, walletID string, limit, offset int) ([]models.WalletTransaction, error) {
+	query := `
+		SELECT id, wallet_id, type, amount, balance_before, balance_after, ref_id, note, created_at
+		FROM wallet_transactions
+		WHERE wallet_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+	rows, err := database.Pool.Query(ctx, query, walletID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var transactions []models.WalletTransaction
+	for rows.Next() {
+		var tx models.WalletTransaction
+		err := rows.Scan(
+			&tx.ID, &tx.WalletID, &tx.Type, &tx.Amount, &tx.BalanceBefore,
+			&tx.BalanceAfter, &tx.RefID, &tx.Note, &tx.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		transactions = append(transactions, tx)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	// Return empty slice instead of nil if no transactions found
+	if transactions == nil {
+		transactions = []models.WalletTransaction{}
+	}
+	return transactions, nil
+}

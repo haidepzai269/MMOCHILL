@@ -39,7 +39,7 @@ export default function Footer() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="w-full bg-background/40 backdrop-blur-md border-t border-border/50 py-12 px-6 overflow-hidden">
+    <footer className="w-full bg-card border-t border-border/50 py-16 px-6 overflow-hidden min-h-[450px] flex items-center">
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
           

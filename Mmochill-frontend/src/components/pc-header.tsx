@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  Moon,
-  Sun,
   Bell,
   Search,
   User,
@@ -20,6 +18,7 @@ import {
   Trophy,
   CheckCircle2,
   Settings as SettingsIcon,
+  Coins,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { getUserProfile, userLogout } from "@/app/actions/auth";
@@ -142,9 +141,31 @@ export default function PCHeader() {
   const { effectiveEvent } = useAppearance();
 
   return (
-    <header className={`hidden md:flex h-16 items-center justify-between px-8 backdrop-blur-xl border-b border-border/50 sticky top-0 z-40 transition-all duration-500 ${effectiveEvent === 'victory_day' ? 'bg-[#da251d] text-white shadow-lg border-none' : 'bg-background/80'}`}>
+    <header className={`hidden md:flex h-20 items-center justify-between px-8 backdrop-blur-xl border-b border-border/50 sticky top-0 z-[60] transition-all duration-500 ${effectiveEvent === 'victory_day' ? 'bg-[#da251d] text-white shadow-lg border-none' : 'bg-background/80'}`}>
       <FestiveHeaderOverlay event={effectiveEvent} />
-      <div className="relative w-96" ref={searchRef}>
+
+      <div className="flex items-center gap-8 flex-1">
+        {/* Brand Logo Section */}
+        <Link 
+          href="/" 
+          className="flex items-center gap-3 shrink-0 hover:opacity-80 transition-all group/logo"
+        >
+          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 via-primary/10 to-transparent border border-primary/20 shadow-inner group-hover/logo:scale-110 transition-all duration-500">
+            <Coins className={`w-6 h-6 ${effectiveEvent === 'victory_day' ? 'text-white' : 'text-primary'} drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]`} />
+          </div>
+          
+          <div className="flex flex-col min-w-0">
+            <h1 className={`font-black text-xl leading-none tracking-tighter italic uppercase ${effectiveEvent === 'victory_day' ? 'text-white' : 'text-foreground'}`}>
+              MMOChill
+            </h1>
+            <p className={`text-[9px] font-bold mt-0.5 uppercase tracking-[0.2em] opacity-80 ${effectiveEvent === 'victory_day' ? 'text-white' : 'text-primary'}`}>
+              Earn every tap
+            </p>
+          </div>
+        </Link>
+
+        {/* Global Search */}
+        <div className="relative w-96" ref={searchRef}>
         <div className="relative group">
           <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${effectiveEvent === 'victory_day' ? 'text-white' : (isSearchFocused ? 'text-primary' : 'text-muted-foreground')}`} />
           <input
@@ -243,6 +264,7 @@ export default function PCHeader() {
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </div>
 
       <div className="flex items-center gap-4">
@@ -410,18 +432,7 @@ export default function PCHeader() {
           </Link>
         </div>
 
-        {mounted && (
-          <button
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className={`p-2.5 rounded-full transition-colors ${effectiveEvent === 'victory_day' ? 'hover:bg-white/10 text-white' : 'hover:bg-muted text-foreground/80'}`}
-          >
-            {theme === "dark" ? (
-              <Sun className="w-5 h-5" />
-            ) : (
-              <Moon className="w-5 h-5" />
-            )}
-          </button>
-        )}
+
 
         <div className="h-8 w-px bg-border/50 mx-1"></div>
 

@@ -54,16 +54,22 @@ func PerformCheckIn(ctx context.Context, userID string, reward int64) (int, erro
 		return 0, err
 	}
 
-	// Kiểm tra xem đã điểm danh trong ngày chưa (Reset lúc 0h)
-	now := time.Now()
+	// Kiểm tra xem đã điểm danh trong ngày chưa (Reset lúc 0h múi giờ VN)
+	location, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if location == nil {
+		location = time.Local
+	}
+	now := time.Now().In(location)
+
 	if lastCheckin != nil {
-		if lastCheckin.Year() == now.Year() && lastCheckin.YearDay() == now.YearDay() {
-			return 0, fmt.Errorf("already checked in today")
+		lastLocal := lastCheckin.In(location)
+		if lastLocal.Year() == now.Year() && lastLocal.YearDay() == now.YearDay() {
+			return 0, fmt.Errorf("Bạn đã điểm danh ngày hôm nay rồi")
 		}
 
 		// Kiểm tra xem có bị đứt chuỗi không (quá 1 ngày)
 		yesterday := now.AddDate(0, 0, -1)
-		if lastCheckin.Year() != yesterday.Year() || lastCheckin.YearDay() != yesterday.YearDay() {
+		if lastLocal.Year() != yesterday.Year() || lastLocal.YearDay() != yesterday.YearDay() {
 			streak = 0 // Đứt chuỗi
 		}
 	}
@@ -78,7 +84,7 @@ func PerformCheckIn(ctx context.Context, userID string, reward int64) (int, erro
 		return 0, err
 	}
 
-	// 3. Cộng tiền vào Wallet (Sử dụng hàm cộng tiền có sẵn hoặc viết logic trực tiếp)
+	// 3. Cộng tiền vào Wallet
 	var walletID string
 	var balanceBefore int64
 	err = tx.QueryRow(ctx, "SELECT id, balance FROM wallets WHERE user_id = $1 FOR UPDATE", userID).Scan(&walletID, &balanceBefore)
@@ -115,17 +121,23 @@ func PerformLuckySpin(ctx context.Context, userID string, reward int64, label st
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Kiểm tra lượt quay trong ngày
+	// 1. Kiểm tra lượt quay trong ngày (Múi giờ VN)
 	var lastSpin *time.Time
 	err = tx.QueryRow(ctx, "SELECT last_spin_at FROM user_bonuses WHERE user_id = $1 FOR UPDATE", userID).Scan(&lastSpin)
 	if err != nil {
 		return err
 	}
 
-	now := time.Now()
+	location, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if location == nil {
+		location = time.Local
+	}
+	now := time.Now().In(location)
+
 	if lastSpin != nil {
-		if lastSpin.Year() == now.Year() && lastSpin.YearDay() == now.YearDay() {
-			return fmt.Errorf("already spun today")
+		lastLocal := lastSpin.In(location)
+		if lastLocal.Year() == now.Year() && lastLocal.YearDay() == now.YearDay() {
+			return fmt.Errorf("Bạn đã quay thưởng ngày hôm nay rồi")
 		}
 	}
 

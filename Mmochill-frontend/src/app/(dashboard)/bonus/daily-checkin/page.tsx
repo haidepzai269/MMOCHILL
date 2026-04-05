@@ -40,7 +40,7 @@ const WHEEL_SEGMENTS = [
 
 const NUM = WHEEL_SEGMENTS.length; // 6
 const DEG = 360 / NUM;             // 60°
-const OFFSET = -90;                // segment 0 bắt đầu từ đỉnh (12h)
+const OFFSET = -120;               // segment 0 nằm giữa đỉnh (-90°) => từ -120° đến -60°
 
 export default function DailyCheckinPage() {
   const [status, setStatus] = useState<BonusStatus | null>(null);
@@ -87,11 +87,10 @@ export default function DailyCheckinPage() {
 
     const { index, reward, label } = res.data;
 
-    // Tính góc dừng: segment index nằm ở giữa ô, kim ở đỉnh (12h, 0°)
-    // Ô i chiếm [OFFSET + i*DEG, OFFSET + (i+1)*DEG], giữa ô = OFFSET + i*DEG + DEG/2
-    // Để ô i lên đỉnh: xoay -(midAngleOfSegment i) so với ban đầu
+    // Tính góc dừng: ô i chiếm [OFFSET + i*DEG, OFFSET + (i+1)*DEG], giữa ô = OFFSET + i*DEG + DEG/2
+    // Để giữa ô i lên đỉnh (-90°), ta cần xoay thêm -(90 + midAngle)
     const midAngle = OFFSET + index * DEG + DEG / 2;
-    const targetAngle = -midAngle; // counter-rotate để đưa midAngle về 0° (đỉnh)
+    const targetAngle = -90 - midAngle; // counter-rotate để đưa midAngle về -90° (đỉnh thực sự trên hệ toạ độ SVG/CSS)
     const extraRounds = 6 * 360;
     const newRotation = rotation + extraRounds + (targetAngle - (rotation % 360));
 
@@ -271,14 +270,15 @@ export default function DailyCheckinPage() {
               {/* Vành đai glow */}
               <div className={`absolute inset-0 rounded-full border-4 border-purple-500/30 transition-all duration-300 pointer-events-none ${spinning ? "shadow-[0_0_80px_rgba(168,85,247,0.5)]" : "shadow-[0_0_40px_rgba(168,85,247,0.15)]"}`} />
 
-              {/* Vòng quay — chỉ vẽ màu, KHÔNG có text */}
+              {/* Vòng quay — Chứa cả màu và chữ để cùng xoay */}
               <div
-                className="absolute inset-0 rounded-full overflow-hidden"
+                className="absolute inset-0 rounded-full"
                 style={{
                   transform: `rotate(${rotation}deg)`,
                   transition: spinning ? "transform 4s cubic-bezier(0.17,0.67,0.12,0.99)" : "none",
                 }}
               >
+                {/* SVG vẽ các miếng màu */}
                 <svg viewBox="-1 -1 2 2" className="w-full h-full">
                   {WHEEL_SEGMENTS.map((seg, i) => (
                     <g key={i}>
@@ -290,29 +290,40 @@ export default function DailyCheckinPage() {
                   ))}
                   <circle cx="0" cy="0" r="0.13" fill="rgba(255,255,255,0.08)" />
                 </svg>
+
+                {/* TEXT LAYER — Bây giờ đã nằm TRONG div xoay */}
+                {WHEEL_SEGMENTS.map((seg, i) => {
+                  // Tính góc cho từng nhãn: 
+                  // Múi giờ gốc OFFSET = -120, mỗi ô 60deg
+                  const midAngle = OFFSET + i * DEG + DEG / 2;
+                  const angle = midAngle + 90;
+                  // Tính vị trí x,y bằng lượng giác (bán kính r = 120px)
+                  const r = 120;
+                  const dx = r * Math.cos(midAngle * Math.PI / 180);
+                  const dy = r * Math.sin(midAngle * Math.PI / 180);
+                  
+                  return (
+                    <div
+                      key={i}
+                      className="absolute top-1/2 left-1/2 pointer-events-none select-none flex flex-col items-center justify-center z-10"
+                      style={{ 
+                        width: "100px",
+                        height: "40px",
+                        // Dịch tâm về chính giữa phần tử (-50%), sau đó đẩy đi dx, dy, rồi xoay góc
+                        transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) rotate(${angle}deg)`,
+                      }}
+                    >
+                      <span className="font-black leading-none text-center" style={{ color: seg.textColor, fontSize: "clamp(12px, 4vw, 20px)", textShadow: "0 2px 4px rgba(0,0,0,0.5)" }}>
+                        {seg.label}
+                      </span>
+                      <span className="font-bold leading-none text-center" style={{ color: seg.textColor, fontSize: "clamp(8px, 2vw, 10px)", opacity: 0.9, marginTop: "2px" }}>
+                        {seg.sublabel}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
 
-              {/*
-                TEXT OVERLAY — Nằm NGOÀI div đang xoay.
-                Vị trí tính từ góc cố định → text LUÔN đứng thẳng
-              */}
-              {WHEEL_SEGMENTS.map((seg, i) => {
-                const pos = textPos(i);
-                return (
-                  <div
-                    key={i}
-                    className="absolute pointer-events-none select-none flex flex-col items-center justify-center z-10"
-                    style={{ left: pos.left, top: pos.top, transform: "translate(-50%, -50%)" }}
-                  >
-                    <span className="font-black leading-none text-center" style={{ color: seg.textColor, fontSize: "clamp(11px, 3.2vw, 17px)", textShadow: "0 1px 4px rgba(0,0,0,0.8)" }}>
-                      {seg.label}
-                    </span>
-                    <span className="font-semibold leading-none text-center" style={{ color: seg.textColor, fontSize: "clamp(7px, 1.6vw, 9px)", opacity: 0.8, marginTop: "2px" }}>
-                      {seg.sublabel}
-                    </span>
-                  </div>
-                );
-              })}
 
               {/* Nút tâm */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 md:w-20 md:h-20 bg-card border-[4px] border-white/20 rounded-full flex items-center justify-center shadow-2xl z-20 pointer-events-none">

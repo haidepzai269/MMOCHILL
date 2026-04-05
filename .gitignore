@@ -1,0 +1,35 @@
+# IDE settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backend
+Mmochill-backend/api.exe
+Mmochill-backend/tmp/
+Mmochill-backend/bin/
+# Allow migrations but ignore other SQL files
+Mmochill-backend/*.sql
+!Mmochill-backend/migrations/*.sql
+
+# SQL dumps and scratch files
+*.sql
+*.md
+!Mmochill_system.md
+SQL_MMOCHILL.sql
+schema_dump.sql
+tmp/
+go-local.ps1
+go-tunnel.ps1
+prompt-api.txt
+prompt-database.txt
+prompt.txt
+
+# Frontend (handled by its own .gitignore but adding here as well)
+Mmochill-frontend/node_modules/
+Mmochill-frontend/.next/
+Mmochill-frontend/out/
+Mmochill-frontend/build/
+Mmochill-frontend/.env*
